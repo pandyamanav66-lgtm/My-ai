@@ -361,11 +361,18 @@ class AiCoachService {
     companion object {
         fun friendlyError(e: Exception): String {
             Log.e(TAG, "AI request failed", e)
-            return when (e) {
-                is TimeoutCancellationException -> "AI timed out after 60 seconds. Check your internet and try again."
-                is CancellationException -> "Stopped."
-                else -> e.localizedMessage?.takeIf { it.isNotBlank() }
-                    ?: "Gemini couldn't complete this request right now. Please try again."
+            val raw = e.localizedMessage?.takeIf { it.isNotBlank() }
+            return when {
+                e is TimeoutCancellationException ->
+                    "AI timed out after 60 seconds. Check your internet and try again."
+                e is CancellationException ->
+                    "Stopped."
+                raw != null && raw.contains("Default FirebaseApp is not initialized", ignoreCase = true) ->
+                    "Firebase is not configured in this APK build (app/google-services.json was missing when built). Add the GOOGLE_SERVICES_JSON GitHub secret and rebuild the APK."
+                raw != null ->
+                    raw
+                else ->
+                    "Gemini couldn't complete this request right now. Please try again."
             }
         }
     }

@@ -102,6 +102,31 @@ jobs:
 
           echo "Temporary debug keystore is ready."
 
+      - name: Configure Firebase google-services.json
+        id: configure_firebase
+        shell: bash
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
+            echo "Using existing app/google-services.json from repository."
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          elif [[ -n "${GOOGLE_SERVICES_JSON:-}" ]]; then
+            printf '%s' "${GOOGLE_SERVICES_JSON}" > app/google-services.json
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON secret."
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          elif [[ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
+            printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json
+            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret."
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::warning::app/google-services.json is missing! Add the GOOGLE_SERVICES_JSON repository secret so Firebase AI features work in the built APK."
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Build debug APK
         shell: bash
         run: gradle :app:assembleDebug --stacktrace --no-daemon
@@ -243,11 +268,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_OUTCOME: ${{ steps.publish_release.outcome }}
+          FIREBASE_CONFIGURED: ${{ steps.configure_firebase.outputs.configured }}
           RELEASE_TAG: ${{ steps.prepare_release_asset.outputs.release_tag }}
           RELEASE_TITLE: ${{ steps.prepare_release_asset.outputs.release_title }}
           ASSET_NAME: ${{ steps.prepare_release_asset.outputs.asset_name }}
         run: |
           set -euo pipefail
+
+          if [[ "${FIREBASE_CONFIGURED}" == "true" ]]; then
+            FIREBASE_STATUS="Included (\`app/google-services.json\` bundled — Gemini AI ready)"
+          else
+            FIREBASE_STATUS="Missing (\`GOOGLE_SERVICES_JSON\` secret not set — Gemini AI will show Firebase init error)"
+          fi
 
           if [[ "${PUBLISH_OUTCOME}" == "success" ]]; then
             RELEASE_URL="$(gh release view "${RELEASE_TAG}" --json url --jq '.url')"
@@ -255,11 +287,13 @@ jobs:
             echo "Release Title: ${RELEASE_TITLE}"
             echo "Release URL: ${RELEASE_URL}"
             echo "APK Asset Filename: ${ASSET_NAME}"
+            echo "Firebase Config: ${FIREBASE_STATUS}"
 
             {
               echo "## Debug APK Build & Release Summary"
               echo ""
               echo "- **Status:** Build, Actions artifact upload, and GitHub Release publishing succeeded."
+              echo "- **Firebase AI Config:** ${FIREBASE_STATUS}"
               echo "- **Release Title:** ${RELEASE_TITLE}"
               echo "- **Release Tag:** \`${RELEASE_TAG}\`"
               echo "- **APK Asset Filename:** \`${ASSET_NAME}\`"
@@ -277,6 +311,7 @@ jobs:
               echo "> **Warning:** GitHub Release publishing failed, so no GitHub Release link is available for this run."
               echo ""
               echo "- **APK Build:** Succeeded"
+              echo "- **Firebase AI Config:** ${FIREBASE_STATUS}"
               echo "- **Actions Artifact Backup:** \`app-debug-apk\` was uploaded successfully and remains available for download from this workflow run's Artifacts section."
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
