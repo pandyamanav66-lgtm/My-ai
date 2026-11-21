@@ -737,7 +737,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                         ai = it.ai.copy(
                             isChatStreaming = false,
                             streamingChatReply = "",
-                            errorMessage = e.localizedMessage ?: "Gemini could not respond right now. Please retry."
+                            errorMessage = AiCoachService.friendlyError(e)
                         )
                     )
                 }
@@ -940,7 +940,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                         ai = it.ai.copy(
                             isVoiceThinking = false,
                             voiceStreamingText = "",
-                            errorMessage = e.localizedMessage ?: "Voice conversation error. Please try again."
+                            errorMessage = AiCoachService.friendlyError(e)
                         )
                     )
                 }

@@ -111,21 +111,61 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
-            echo "Using existing app/google-services.json from repository."
-            echo "configured=true" >> "${GITHUB_OUTPUT}"
-          elif [[ -n "${GOOGLE_SERVICES_JSON:-}" ]]; then
+          SOURCE="none"
+          if [[ -n "${GOOGLE_SERVICES_JSON:-}" ]]; then
             printf '%s' "${GOOGLE_SERVICES_JSON}" > app/google-services.json
-            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON secret."
-            echo "configured=true" >> "${GITHUB_OUTPUT}"
+            SOURCE="GOOGLE_SERVICES_JSON secret"
           elif [[ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
             printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json
-            echo "Restored app/google-services.json from GOOGLE_SERVICES_JSON_BASE64 secret."
-            echo "configured=true" >> "${GITHUB_OUTPUT}"
+            SOURCE="GOOGLE_SERVICES_JSON_BASE64 secret"
+          elif [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
+            SOURCE="repository app/google-services.json"
           else
-            echo "::warning::app/google-services.json is missing! Add the GOOGLE_SERVICES_JSON repository secret so Firebase AI features work in the built APK."
-            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            echo "::error::app/google-services.json is missing! Add Repository Secret 'GOOGLE_SERVICES_JSON' (Settings -> Secrets and variables -> Actions -> New repository secret) with the FULL contents of app/google-services.json (from { to }), then re-run."
+            exit 1
           fi
+
+          echo "Loaded app/google-services.json from: ${SOURCE}"
+
+          python3 - <<'PY'
+          import json, sys
+
+          try:
+              with open("app/google-services.json", "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except Exception as e:
+              print(f"::error::app/google-services.json is NOT valid JSON ({e}). Make sure you copied the ENTIRE file from line 1 to the last line.")
+              sys.exit(1)
+
+          project_id = (data.get("project_info") or {}).get("project_id", "")
+          if not project_id or "remixed" in project_id.lower() or "placeholder" in project_id.lower():
+              print(f"::error::Invalid or placeholder project_id in app/google-services.json: '{project_id}'. Add the real app/google-services.json into the GOOGLE_SERVICES_JSON repository secret.")
+              sys.exit(1)
+
+          target_pkg = "com.aistudio.studytracker.qzmplk"
+          clients = data.get("client") or []
+          matched = None
+          for c in clients:
+              pkg = ((c.get("client_info") or {}).get("android_client_info") or {}).get("package_name")
+              if pkg == target_pkg:
+                  matched = c
+                  break
+
+          if not matched:
+              print(f"::error::app/google-services.json does not contain a client entry for package '{target_pkg}'. Copy the full app/google-services.json from AI Studio.")
+              sys.exit(1)
+
+          app_id = (matched.get("client_info") or {}).get("mobilesdk_app_id", "")
+          api_keys = matched.get("api_key") or []
+          api_key = (api_keys[0].get("current_key", "") if api_keys else "")
+          if not app_id or not api_key:
+              print("::error::app/google-services.json client entry is missing mobilesdk_app_id or api_key.")
+              sys.exit(1)
+
+          print(f"Validated Firebase config for package '{target_pkg}' (project_id='{project_id}').")
+          PY
+
+          echo "configured=true" >> "${GITHUB_OUTPUT}"
 
       - name: Build debug APK
         shell: bash
@@ -166,6 +206,17 @@ jobs:
 
           APK_SIZE="$(wc -c < "${EXPECTED_APK}" | tr -d ' ')"
           echo "Verified debug APK: ${EXPECTED_APK} (${APK_SIZE} bytes)"
+
+          python3 - <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile("app/build/outputs/apk/debug/app-debug.apk") as z:
+              data = z.read("resources.arsc")
+          missing = [k for k in ("google_app_id", "google_api_key", "recaptcha_site_key") if k.encode() not in data]
+          if missing:
+              print(f"::error::Built APK is missing required Firebase resources: {missing}. Firebase AI will fail at runtime.")
+              sys.exit(1)
+          print("Verified Firebase resources (google_app_id, google_api_key, recaptcha_site_key) are bundled inside the APK.")
+          PY
 
       - name: Upload debug APK artifact
         id: upload_apk
