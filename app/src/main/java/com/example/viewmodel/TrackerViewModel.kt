@@ -15,6 +15,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -728,6 +729,17 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                         it.copy(ai = it.ai.copy(isChatStreaming = false, streamingChatReply = ""))
                     }
                 }
+            } catch (t: TimeoutCancellationException) {
+                Log.e(TAG, "Chat stream timed out", t)
+                _uiState.update {
+                    it.copy(
+                        ai = it.ai.copy(
+                            isChatStreaming = false,
+                            streamingChatReply = "",
+                            errorMessage = AiCoachService.friendlyError(t)
+                        )
+                    )
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Exception) {
@@ -800,6 +812,15 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     it.copy(ai = it.ai.copy(isTranscribing = false, transcriptText = transcript))
                 }
                 showToast("Audio transcribed with Gemini!")
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(
+                        ai = it.ai.copy(
+                            isTranscribing = false,
+                            errorMessage = AiCoachService.friendlyError(t)
+                        )
+                    )
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (err: Exception) {
@@ -931,6 +952,17 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 if (_uiState.value.ai.voiceAutoSpeak && finalReply.isNotEmpty()) {
                     speakAloud(finalReply, profile.aiLanguage)
                 }
+            } catch (t: TimeoutCancellationException) {
+                Log.e(TAG, "Voice conversation timed out", t)
+                _uiState.update {
+                    it.copy(
+                        ai = it.ai.copy(
+                            isVoiceThinking = false,
+                            voiceStreamingText = "",
+                            errorMessage = AiCoachService.friendlyError(t)
+                        )
+                    )
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Exception) {
@@ -1047,6 +1079,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     _uiState.update { it.copy(ai = it.ai.copy(streamOutput = sb.toString())) }
                 }
                 _uiState.update { it.copy(ai = it.ai.copy(isStreaming = false)) }
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(ai = it.ai.copy(isStreaming = false, errorMessage = AiCoachService.friendlyError(t)))
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Exception) {
@@ -1072,6 +1108,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     _uiState.update { it.copy(ai = it.ai.copy(streamOutput = sb.toString())) }
                 }
                 _uiState.update { it.copy(ai = it.ai.copy(isStreaming = false)) }
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(ai = it.ai.copy(isStreaming = false, errorMessage = AiCoachService.friendlyError(t)))
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Exception) {
@@ -1107,6 +1147,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     _uiState.update { it.copy(ai = it.ai.copy(streamOutput = sb.toString())) }
                 }
                 _uiState.update { it.copy(ai = it.ai.copy(isStreaming = false)) }
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(ai = it.ai.copy(isStreaming = false, errorMessage = AiCoachService.friendlyError(t)))
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Exception) {
@@ -1140,6 +1184,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
                 showToast("Added: ${task.title}")
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(ai = it.ai.copy(isStreaming = false, errorMessage = AiCoachService.friendlyError(t)))
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (err: Exception) {
@@ -1184,6 +1232,10 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                             previewRoutine = tasks
                         )
                     )
+                }
+            } catch (t: TimeoutCancellationException) {
+                _uiState.update {
+                    it.copy(ai = it.ai.copy(isStreaming = false, errorMessage = AiCoachService.friendlyError(t)))
                 }
             } catch (ce: CancellationException) {
                 throw ce

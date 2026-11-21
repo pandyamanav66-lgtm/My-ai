@@ -3,19 +3,29 @@ package com.example.data
 import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.appcheck.FirebaseAppCheck
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private const val TAG = "AiCoachService"
 private const val DEFAULT_MODEL = "gemini-3.8-flash"
+private const val APP_CHECK_TIMEOUT_MS = 20_000L
+private const val AI_TIMEOUT_MS = 45_000L
 
 class AiCoachService {
 
@@ -74,6 +84,60 @@ class AiCoachService {
         )
     }
 
+    /**
+     * Preflight App Check attestation with a bounded timeout so hangs or attestation failures
+     * surface immediately instead of leaving the UI spinning indefinitely.
+     */
+    private suspend fun ensureAppCheckReady() {
+        try {
+            withTimeout(APP_CHECK_TIMEOUT_MS) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    FirebaseAppCheck.getInstance()
+                        .getAppCheckToken(false)
+                        .addOnSuccessListener {
+                            if (cont.isActive) cont.resume(Unit)
+                        }
+                        .addOnFailureListener { exc ->
+                            if (cont.isActive) cont.resumeWithException(exc)
+                        }
+                }
+            }
+        } catch (t: TimeoutCancellationException) {
+            throw IllegalStateException(
+                "App Check verification timed out (20s). Check internet/Google Play Services and retry.",
+                t
+            )
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "App Check verification failed: ${e.localizedMessage ?: e.javaClass.simpleName}",
+                e
+            )
+        }
+    }
+
+    private fun buildValidChatHistory(history: List<ChatMessageItem>): List<Content> {
+        val valid = mutableListOf<Content>()
+        var expectedRole = "user"
+        for (msg in history.takeLast(20)) {
+            val role = if (msg.role == "model") "model" else "user"
+            val body = msg.text.trim()
+            if (body.isEmpty()) continue
+            if (role == expectedRole) {
+                valid.add(content(role = role) { text(body) })
+                expectedRole = if (expectedRole == "user") "model" else "user"
+            } else if (role == "user" && valid.isNotEmpty() && expectedRole == "model") {
+                // Replace orphaned user message from an earlier failed send
+                valid[valid.lastIndex] = content(role = "user") { text(body) }
+            }
+        }
+        if (valid.isNotEmpty() && expectedRole == "model") {
+            valid.removeAt(valid.lastIndex)
+        }
+        return valid
+    }
+
     // 1. Multi-Turn Gemini Chatbot with System Instruction & Mode Selection
     fun streamChatReply(
         profile: UserProfile,
@@ -81,6 +145,8 @@ class AiCoachService {
         userMessage: String,
         mode: AiChatMode
     ): Flow<String> = flow {
+        ensureAppCheckReady()
+
         val today = todayKey()
         val streak = Analytics.calculateStreak(profile, today)
         val todayStudy = Analytics.studyHoursForDay(profile, today)
@@ -112,30 +178,27 @@ class AiCoachService {
             systemInstruction = content { text(sysPrompt) }
         )
 
-        val recentHistory = history.takeLast(14).map { msg ->
-            content(role = if (msg.role == "model") "model" else "user") {
-                text(msg.text)
-            }
-        }
-
+        val recentHistory = buildValidChatHistory(history)
         val chat = chatModel.startChat(history = recentHistory)
-        withTimeout(60_000L) {
+        withTimeout(AI_TIMEOUT_MS) {
             chat.sendMessageStream(userMessage).collect { chunk ->
                 val txt = chunk.text.orEmpty()
                 if (txt.isNotEmpty()) emit(txt)
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     // 2. Audio Transcription (Multimodal audio bytes -> Gemini transcript)
-    suspend fun transcribeAudio(audioBytes: ByteArray, language: String): String {
+    suspend fun transcribeAudio(audioBytes: ByteArray, language: String): String = withContext(Dispatchers.IO) {
+        ensureAppCheckReady()
+
         val prompt = """
             Transcribe the spoken audio accurately and cleanly.
             Preferred language context: $language (preserve Hindi/Hinglish/English words naturally as spoken).
             Output ONLY the plain transcript text with proper punctuation, no timestamps or extra preamble.
         """.trimIndent()
 
-        val response = withTimeout(60_000L) {
+        val response = withTimeout(AI_TIMEOUT_MS) {
             streamModel.generateContent(
                 content {
                     inlineData(audioBytes, "audio/mp4")
@@ -143,7 +206,7 @@ class AiCoachService {
                 }
             )
         }
-        return response.text?.trim().orEmpty().ifBlank {
+        response.text?.trim().orEmpty().ifBlank {
             throw IllegalStateException("Could not detect clear speech in the recording. Try speaking closer to the mic.")
         }
     }
@@ -154,6 +217,8 @@ class AiCoachService {
         recentTurns: List<Pair<String, String>>, // role to text
         audioBytes: ByteArray
     ): Flow<String> = flow {
+        ensureAppCheckReady()
+
         val historyContext = if (recentTurns.isEmpty()) "" else {
             "Recent conversation:\n" + recentTurns.takeLast(6).joinToString("\n") { (r, t) ->
                 "${if (r == "user") "Student" else "Coach"}: $t"
@@ -171,7 +236,7 @@ class AiCoachService {
             systemInstruction = content { text(sysPrompt) }
         )
 
-        withTimeout(60_000L) {
+        withTimeout(AI_TIMEOUT_MS) {
             voiceModel.generateContentStream(
                 content {
                     if (historyContext.isNotBlank()) text(historyContext)
@@ -183,10 +248,12 @@ class AiCoachService {
                 if (txt.isNotEmpty()) emit(txt)
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     // 4. Weekly Coach
     fun streamWeeklyCoach(profile: UserProfile, language: String): Flow<String> = flow {
+        ensureAppCheckReady()
+
         val today = todayKey()
         val last7 = (0..6).map { shiftDateKey(today, -it) }.reversed()
         val dayLines = last7.joinToString("\n") { d ->
@@ -223,13 +290,13 @@ class AiCoachService {
             3. 3 concrete actions for tomorrow
         """.trimIndent()
 
-        withTimeout(60_000L) {
+        withTimeout(AI_TIMEOUT_MS) {
             streamModel.generateContentStream(prompt).collect { chunk ->
                 val txt = chunk.text.orEmpty()
                 if (txt.isNotEmpty()) emit(txt)
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     // 5. Exam Planner
     fun streamExamPlan(
@@ -239,6 +306,8 @@ class AiCoachService {
         weakAreas: String,
         language: String
     ): Flow<String> = flow {
+        ensureAppCheckReady()
+
         val prompt = """
             You are a strategic exam preparation coach.
             Respond strictly in $language.
@@ -253,16 +322,18 @@ class AiCoachService {
             Break into clear phases with daily hour splits and mock-test checkpoints.
         """.trimIndent()
 
-        withTimeout(60_000L) {
+        withTimeout(AI_TIMEOUT_MS) {
             streamModel.generateContentStream(prompt).collect { chunk ->
                 val txt = chunk.text.orEmpty()
                 if (txt.isNotEmpty()) emit(txt)
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     // 6. Doubt Solver
     fun streamDoubtAnswer(subject: String, question: String, language: String): Flow<String> = flow {
+        ensureAppCheckReady()
+
         val prompt = """
             You are a patient, crystal-clear tutor solving a student's doubt.
             Respond strictly in $language.
@@ -275,16 +346,18 @@ class AiCoachService {
             3. Common mistake to avoid + quick memory trick
         """.trimIndent()
 
-        withTimeout(60_000L) {
+        withTimeout(AI_TIMEOUT_MS) {
             streamModel.generateContentStream(prompt).collect { chunk ->
                 val txt = chunk.text.orEmpty()
                 if (txt.isNotEmpty()) emit(txt)
             }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     // 7. Quick Add (Structured JSON)
-    suspend fun parseQuickAddTask(input: String, availableSubjects: List<String>): RoutineTask {
+    suspend fun parseQuickAddTask(input: String, availableSubjects: List<String>): RoutineTask = withContext(Dispatchers.IO) {
+        ensureAppCheckReady()
+
         val prompt = """
             Parse this natural-language routine task request into structured fields:
             "$input"
@@ -295,13 +368,13 @@ class AiCoachService {
             If no time is given, pick "18:00" to "19:00".
         """.trimIndent()
 
-        val response = withTimeout(45_000L) {
+        val response = withTimeout(AI_TIMEOUT_MS) {
             quickAddModel.generateContent(prompt)
         }
         val raw = response.text ?: throw IllegalStateException("Empty AI response for Quick Add.")
         val json = JSONObject(raw)
         val cat = json.optString("category", "Study").takeIf { it in ALL_CATEGORIES } ?: "Study"
-        return RoutineTask(
+        RoutineTask(
             start = normalizeHHmm(json.optString("start", "19:00")),
             end = normalizeHHmm(json.optString("end", "20:00")),
             title = json.optString("title", input.trim()).ifBlank { input.trim() },
@@ -315,7 +388,9 @@ class AiCoachService {
         profile: UserProfile,
         userGoals: String,
         language: String
-    ): Pair<String, List<RoutineTask>> {
+    ): Pair<String, List<RoutineTask>> = withContext(Dispatchers.IO) {
+        ensureAppCheckReady()
+
         val prompt = """
             Build a realistic full-day routine (12 to 18 blocks from wake-up to sleep) for a student.
             Write summary in $language; keep task titles crisp.
@@ -326,7 +401,7 @@ class AiCoachService {
             Categories allowed: ${ALL_CATEGORIES.joinToString(", ")}
         """.trimIndent()
 
-        val response = withTimeout(60_000L) {
+        val response = withTimeout(AI_TIMEOUT_MS) {
             buildRoutineModel.generateContent(prompt)
         }
         val raw = response.text ?: throw IllegalStateException("Empty AI response for routine builder.")
@@ -348,7 +423,7 @@ class AiCoachService {
             )
         }
         if (tasks.isEmpty()) throw IllegalStateException("AI generated an empty routine.")
-        return summary to tasks.sortedBy { it.startMinutes }
+        summary to tasks.sortedBy { it.startMinutes }
     }
 
     private fun normalizeHHmm(raw: String): String {
@@ -364,7 +439,7 @@ class AiCoachService {
             val raw = e.localizedMessage?.takeIf { it.isNotBlank() }
             return when {
                 e is TimeoutCancellationException ->
-                    "AI timed out after 60 seconds. Check your internet and try again."
+                    "Gemini timed out after 45 seconds. Check your internet connection and tap Send again."
                 e is CancellationException ->
                     "Stopped."
                 raw != null && raw.contains("Default FirebaseApp is not initialized", ignoreCase = true) ->
@@ -372,7 +447,7 @@ class AiCoachService {
                 raw != null ->
                     raw
                 else ->
-                    "Gemini couldn't complete this request right now. Please try again."
+                    "Gemini couldn't complete this request right now (${e.javaClass.simpleName}). Please try again."
             }
         }
     }

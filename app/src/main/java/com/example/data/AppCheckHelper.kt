@@ -54,6 +54,21 @@ private fun ensureFirebaseInitialized(appContext: Context): Boolean {
     return false
 }
 
+private fun preWarmAppCheckToken() {
+    runCatching {
+        FirebaseAppCheck.getInstance()
+            .getAppCheckToken(false)
+            .addOnSuccessListener {
+                Log.d(TAG, "App Check token pre-warmed successfully.")
+            }
+            .addOnFailureListener { err ->
+                Log.e(TAG, "App Check token pre-warm failed: ${err.localizedMessage}", err)
+            }
+    }.onFailure { err ->
+        Log.e(TAG, "Unable to trigger App Check pre-warm", err)
+    }
+}
+
 private fun installRecaptchaProvider(appContext: Context): Boolean {
     val siteKey = readStringResource(appContext, RECAPTCHA_SITE_KEY_RES)
     if (siteKey == null) {
@@ -114,6 +129,9 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         } else {
             installRecaptchaProvider(appContext)
         }
+
+        // Pre-warm App Check token during splash screen so first AI request responds fast
+        preWarmAppCheckToken()
     } catch (e: Exception) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
     }
