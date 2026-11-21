@@ -1,0 +1,6 @@
+{
+  "name": "Study Tracker",
+  "description": "Daily Routine & Study Tracker by Manav Pandya — daily checklist, analytics dashboard, weekly heatmap, focus timer, exam countdown, doubt notebook, and AI study coach.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

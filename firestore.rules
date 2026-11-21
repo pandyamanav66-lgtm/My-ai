@@ -1,0 +1,228 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidWorkspace(data, userId) {
+      return data.userId == userId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+        (!('customDetails' in data) || (data.customDetails is string && data.customDetails.size() <= 400)) &&
+        data.theme in ['auto', 'light', 'dark'] &&
+        data.dailyStudyGoalHours is number && data.dailyStudyGoalHours >= 0.5 && data.dailyStudyGoalHours <= 16.0 &&
+        data.aiLanguage in ['Hinglish', 'English', 'Hindi'] &&
+        data.subjects is list && data.subjects.size() <= 30 && (data.subjects.size() == 0 || data.subjects[0] is string) &&
+        data.unlockedBadges is list && data.unlockedBadges.size() <= 20 && (data.unlockedBadges.size() == 0 || data.unlockedBadges[0] is string) &&
+        data.bestGameScore is int && data.bestGameScore >= 0 && data.bestGameScore <= 1000000 &&
+        data.bestGameWave is int && data.bestGameWave >= 0 && data.bestGameWave <= 1000 &&
+        data.gameBonusXp is int && data.gameBonusXp >= 0 && data.gameBonusXp <= 10000000 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRoutineTask(data, userId) {
+      return data.userId == userId &&
+        data.start is string && data.start.size() >= 4 && data.start.size() <= 5 &&
+        data.end is string && data.end.size() >= 4 && data.end.size() <= 5 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 30 &&
+        data.subject is string && data.subject.size() <= 60 &&
+        data.orderIndex is int && data.orderIndex >= 0 && data.orderIndex <= 200 &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidDayLog(data, userId, dateKey) {
+      return data.userId == userId &&
+        data.dateKey == dateKey &&
+        data.dateKey is string && data.dateKey.size() == 10 &&
+        data.completedIds is list && data.completedIds.size() <= 100 && (data.completedIds.size() == 0 || data.completedIds[0] is string) &&
+        data.notes is map && data.notes.size() <= 100 &&
+        data.restDay is bool &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFocusSession(data, userId) {
+      return data.userId == userId &&
+        data.date is string && data.date.size() == 10 &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 60 &&
+        data.minutes is int && data.minutes >= 1 && data.minutes <= 600 &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidExam(data, userId) {
+      return data.userId == userId &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.date is string && data.date.size() == 10 &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidDoubt(data, userId) {
+      return data.userId == userId &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 60 &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 2000 &&
+        data.solved is bool &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidChatMessage(data, userId) {
+      return data.userId == userId &&
+        data.role in ['user', 'model'] &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 12000 &&
+        data.modelUsed is string && data.modelUsed.size() <= 80 &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) && isValidId(userId) &&
+        incoming().keys().hasAll([
+          'userId', 'displayName', 'theme', 'dailyStudyGoalHours', 'aiLanguage',
+          'subjects', 'unlockedBadges', 'bestGameScore', 'bestGameWave', 'gameBonusXp',
+          'createdAt', 'updatedAt'
+        ]) &&
+        incoming().keys().hasOnly([
+          'userId', 'displayName', 'email', 'phone', 'customDetails', 'theme',
+          'dailyStudyGoalHours', 'aiLanguage', 'subjects', 'unlockedBadges',
+          'bestGameScore', 'bestGameWave', 'gameBonusXp', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidWorkspace(incoming(), userId);
+
+      allow update: if isOwner(userId) && isValidId(userId) &&
+        isValidWorkspace(incoming(), userId) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'email', 'phone', 'customDetails', 'theme',
+          'dailyStudyGoalHours', 'aiLanguage', 'subjects', 'unlockedBadges',
+          'bestGameScore', 'bestGameWave', 'gameBonusXp', 'updatedAt'
+        ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /routineTasks/{taskId} {
+        allow get: if isOwner(userId) && isValidId(taskId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(taskId) &&
+          incoming().keys().hasAll(['userId', 'start', 'end', 'title', 'category', 'subject', 'orderIndex', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'start', 'end', 'title', 'category', 'subject', 'orderIndex', 'createdAt', 'updatedAt']) &&
+          isValidRoutineTask(incoming(), userId);
+
+        allow update: if isOwner(userId) && isValidId(taskId) &&
+          isValidRoutineTask(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['start', 'end', 'title', 'category', 'subject', 'orderIndex', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(taskId);
+      }
+
+      match /dayLogs/{dateKey} {
+        allow get: if isOwner(userId) && isValidId(dateKey);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(dateKey) &&
+          incoming().keys().hasAll(['userId', 'dateKey', 'completedIds', 'notes', 'restDay', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'dateKey', 'completedIds', 'notes', 'restDay', 'createdAt', 'updatedAt']) &&
+          isValidDayLog(incoming(), userId, dateKey);
+
+        allow update: if isOwner(userId) && isValidId(dateKey) &&
+          isValidDayLog(incoming(), userId, dateKey) &&
+          incoming().userId == existing().userId &&
+          incoming().dateKey == existing().dateKey &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['completedIds', 'notes', 'restDay', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(dateKey);
+      }
+
+      match /focusSessions/{sessionId} {
+        allow get: if isOwner(userId) && isValidId(sessionId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(sessionId) &&
+          incoming().keys().hasAll(['userId', 'date', 'subject', 'minutes', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'date', 'subject', 'minutes', 'createdAt']) &&
+          isValidFocusSession(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(sessionId);
+      }
+
+      match /exams/{examId} {
+        allow get: if isOwner(userId) && isValidId(examId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(examId) &&
+          incoming().keys().hasAll(['userId', 'name', 'date', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'name', 'date', 'createdAt']) &&
+          isValidExam(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(examId);
+      }
+
+      match /doubts/{doubtId} {
+        allow get: if isOwner(userId) && isValidId(doubtId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(doubtId) &&
+          incoming().keys().hasAll(['userId', 'subject', 'text', 'solved', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['userId', 'subject', 'text', 'solved', 'createdAt', 'updatedAt']) &&
+          isValidDoubt(incoming(), userId);
+
+        allow update: if isOwner(userId) && isValidId(doubtId) &&
+          isValidDoubt(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['subject', 'text', 'solved', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(doubtId);
+      }
+
+      match /chatMessages/{messageId} {
+        allow get: if isOwner(userId) && isValidId(messageId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) && isValidId(messageId) &&
+          incoming().keys().hasAll(['userId', 'role', 'text', 'modelUsed', 'createdAt']) &&
+          incoming().keys().hasOnly(['userId', 'role', 'text', 'modelUsed', 'createdAt']) &&
+          isValidChatMessage(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(messageId);
+      }
+    }
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Authenticated user profile, preferences, subjects, badges, and game high score.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "displayName": { "type": "string", "description": "Student display name (1-80 chars)." },
+        "email": { "type": "string", "description": "Optional email address (0-120 chars)." },
+        "phone": { "type": "string", "description": "Optional phone number (0-40 chars)." },
+        "customDetails": { "type": "string", "description": "Optional exam target or notes (0-400 chars)." },
+        "theme": { "type": "string", "enum": ["auto", "light", "dark"], "description": "App theme mode." },
+        "dailyStudyGoalHours": { "type": "number", "description": "Daily study target in hours (0.5 to 16)." },
+        "aiLanguage": { "type": "string", "enum": ["Hinglish", "English", "Hindi"], "description": "Preferred AI coach language." },
+        "subjects": { "type": "array", "description": "Bounded list of up to 30 study subjects." },
+        "unlockedBadges": { "type": "array", "description": "Bounded list of up to 20 unlocked badge IDs." },
+        "bestGameScore": { "type": "integer", "description": "Best score in Orbit Pulse study break game." },
+        "bestGameWave": { "type": "integer", "description": "Highest wave reached in Orbit Pulse." },
+        "gameBonusXp": { "type": "integer", "description": "Accumulated bonus XP from study break game runs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp set via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "displayName", "theme", "dailyStudyGoalHours", "aiLanguage", "subjects", "unlockedBadges", "bestGameScore", "bestGameWave", "gameBonusXp", "createdAt", "updatedAt"]
+    },
+    "RoutineTaskDoc": {
+      "title": "RoutineTaskDoc",
+      "description": "A daily routine schedule block belonging to the authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "start": { "type": "string", "description": "24h HH:mm start time." },
+        "end": { "type": "string", "description": "24h HH:mm end time." },
+        "title": { "type": "string", "description": "Task name (1-140 chars)." },
+        "category": { "type": "string", "description": "One of the 12 routine categories." },
+        "subject": { "type": "string", "description": "Optional subject name (0-60 chars)." },
+        "orderIndex": { "type": "integer", "description": "Sort index." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "start", "end", "title", "category", "subject", "orderIndex", "createdAt", "updatedAt"]
+    },
+    "DayLogDoc": {
+      "title": "DayLogDoc",
+      "description": "Completion record, per-task notes, and rest-day flag for a single calendar date YYYY-MM-DD.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "dateKey": { "type": "string", "description": "Calendar date YYYY-MM-DD." },
+        "completedIds": { "type": "array", "description": "List of completed routine task IDs (max 100)." },
+        "notes": { "type": "object", "description": "Map of taskId to short note string." },
+        "restDay": { "type": "boolean", "description": "True if marked as a rest day." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "dateKey", "completedIds", "notes", "restDay", "createdAt", "updatedAt"]
+    },
+    "FocusSessionDoc": {
+      "title": "FocusSessionDoc",
+      "description": "A completed Pomodoro focus session log.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "subject": { "type": "string" },
+        "minutes": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "date", "subject", "minutes", "createdAt"]
+    },
+    "ExamDoc": {
+      "title": "ExamDoc",
+      "description": "An upcoming exam countdown entry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "name", "date", "createdAt"]
+    },
+    "DoubtDoc": {
+      "title": "DoubtDoc",
+      "description": "A mistake or study doubt notebook item.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "text": { "type": "string" },
+        "solved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "subject", "text", "solved", "createdAt", "updatedAt"]
+    },
+    "ChatMessageDoc": {
+      "title": "ChatMessageDoc",
+      "description": "A multi-turn Gemini AI Coach chat message.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "text": { "type": "string" },
+        "modelUsed": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp via FieldValue.serverTimestamp()." }
+      },
+      "required": ["userId", "role", "text", "modelUsed", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserWorkspace" },
+      "description": "Owner-isolated student workspace profile, settings, subjects, badges, and game scores."
+    },
+    "/users/{userId}/routineTasks/{taskId}": {
+      "schema": { "$ref": "#/entities/RoutineTaskDoc" },
+      "description": "User's customized daily routine tasks."
+    },
+    "/users/{userId}/dayLogs/{dateKey}": {
+      "schema": { "$ref": "#/entities/DayLogDoc" },
+      "description": "Daily completion checklist, notes, and rest-day records keyed by YYYY-MM-DD."
+    },
+    "/users/{userId}/focusSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/FocusSessionDoc" },
+      "description": "Logged Pomodoro focus sessions."
+    },
+    "/users/{userId}/exams/{examId}": {
+      "schema": { "$ref": "#/entities/ExamDoc" },
+      "description": "Exam countdown entries."
+    },
+    "/users/{userId}/doubts/{doubtId}": {
+      "schema": { "$ref": "#/entities/DoubtDoc" },
+      "description": "Mistake & doubt notebook items."
+    },
+    "/users/{userId}/chatMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessageDoc" },
+      "description": "Persisted multi-turn Gemini chatbot conversation history."
+    }
+  }
+}
