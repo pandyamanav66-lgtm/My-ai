@@ -251,7 +251,7 @@ fun ChecklistScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilledTonalIconButton(
                             onClick = { onAdjustStudyGoal(-0.5) },
-                            modifier = Modifier.size(40.dp).testTag("study_goal_minus"),
+                            modifier = Modifier.size(44.dp).testTag("study_goal_minus"),
                             colors = IconButtonDefaults.filledTonalIconButtonColors(
                                 containerColor = c.surface2,
                                 contentColor = c.ink
@@ -261,7 +261,7 @@ fun ChecklistScreen(
                         }
                         FilledTonalIconButton(
                             onClick = { onAdjustStudyGoal(0.5) },
-                            modifier = Modifier.size(40.dp).testTag("study_goal_plus"),
+                            modifier = Modifier.size(44.dp).testTag("study_goal_plus"),
                             colors = IconButtonDefaults.filledTonalIconButtonColors(
                                 containerColor = c.surface2,
                                 contentColor = c.ink
@@ -298,14 +298,21 @@ fun ChecklistScreen(
                 val isNowDone = currentNowTask.id in dayLog.completedIds
                 val slotSpan = (currentNowTask.endMinutes - currentNowTask.startMinutes).coerceAtLeast(1)
                 val slotFrac = ((nowMinute - currentNowTask.startMinutes).toFloat() / slotSpan).coerceIn(0f, 1f)
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = c.band,
-                    border = BorderStroke(1.5.dp, c.gold),
-                    shadowElevation = 4.dp
+                val nowShape = RoundedCornerShape(22.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(nowShape)
+                        .background(
+                            Brush.linearGradient(listOf(c.band.copy(alpha = 0.90f), c.band2.copy(alpha = 0.80f)))
+                        )
+                        .border(
+                            1.3.dp,
+                            Brush.linearGradient(listOf(Color(0x99FFFFFF), c.gold)),
+                            nowShape
+                        )
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.padding(15.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -616,11 +623,12 @@ private fun MiniKpiBox(
     modifier: Modifier = Modifier
 ) {
     val c = LocalDrstColors.current
+    val kpiShape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(kpiShape)
             .background(c.surface2)
-            .border(1.dp, c.line, RoundedCornerShape(14.dp))
+            .border(1.dp, Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom)), kpiShape)
             .padding(horizontal = 10.dp, vertical = 9.dp)
     ) {
         Text(
@@ -801,8 +809,8 @@ private fun TaskRowItem(
 
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .clickable(onClick = onToggleNote),
                         contentAlignment = Alignment.Center
                     ) {

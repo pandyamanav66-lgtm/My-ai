@@ -3,6 +3,7 @@ package com.example.ui.sheets
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -16,12 +17,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.*
+import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LocalDrstColors
 import com.example.ui.theme.SpaceGroteskFontFamily
@@ -47,13 +51,10 @@ fun EditRoutineSheet(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = c.bg
-    ) {
+    LiquidGlassBackdrop {
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
             // Top bar
-            Surface(color = c.band, modifier = Modifier.fillMaxWidth()) {
+            Surface(color = c.band.copy(alpha = 0.90f), modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -170,11 +171,13 @@ private fun RoutineEditorRow(
     var catMenuExpanded by remember { mutableStateOf(false) }
     var subjMenuExpanded by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.line)
+    val rowShape = RoundedCornerShape(20.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(rowShape)
+            .background(c.glassFill)
+            .border(1.dp, Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom)), rowShape)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -201,7 +204,7 @@ private fun RoutineEditorRow(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp)
                 )
-                IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Rounded.DeleteOutline, contentDescription = "Delete task", tint = c.badInk)
                 }
             }

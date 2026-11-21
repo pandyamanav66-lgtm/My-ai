@@ -3,11 +3,13 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -427,11 +429,17 @@ fun WeeklyScreen(
 @Composable
 private fun WeeklyKpiPill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
     val c = LocalDrstColors.current
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.line)
+    val shape = RoundedCornerShape(18.dp)
+    val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom) {
+        Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom))
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(c.glassFill)
+            .background(Brush.verticalGradient(listOf(c.glassHighlight, Color.Transparent)))
+            .border(1.dp, rimBrush, shape),
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),

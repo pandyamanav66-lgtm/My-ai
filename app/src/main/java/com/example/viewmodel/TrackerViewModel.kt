@@ -9,6 +9,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -153,6 +154,24 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 ttsReady = status == TextToSpeech.SUCCESS
                 if (ttsReady) {
                     tts?.language = Locale.US
+                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            _uiState.update { it.copy(ai = it.ai.copy(isVoiceSpeaking = true)) }
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            _uiState.update { it.copy(ai = it.ai.copy(isVoiceSpeaking = false)) }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            _uiState.update { it.copy(ai = it.ai.copy(isVoiceSpeaking = false)) }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            _uiState.update { it.copy(ai = it.ai.copy(isVoiceSpeaking = false)) }
+                        }
+                    })
                 }
             }
         } catch (e: Exception) {
@@ -264,7 +283,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- Navigation & UI state ----
 
-    fun selectTab(tab: AppTab) = _uiState.update { it.copy(selectedTab = tab) }
+    fun selectTab(tab: AppTab) {
+        if (tab != AppTab.AI_COACH && audioRecorder.isRecording) {
+            stopAudioRecordingClean()
+            _uiState.update {
+                it.copy(
+                    selectedTab = tab,
+                    ai = it.ai.copy(
+                        isRecordingTranscript = false,
+                        isVoiceRecording = false,
+                        micAmplitude = 0f
+                    )
+                )
+            }
+        } else {
+            _uiState.update { it.copy(selectedTab = tab) }
+        }
+    }
     fun selectDate(dateKey: String) = _uiState.update {
         it.copy(selectedDate = dateKey, weeklyStartMonday = startOfWeekMonday(dateKey))
     }
@@ -358,8 +393,20 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun saveRoutine(tasks: List<RoutineTask>) {
         val sorted = tasks
             .filter { it.title.isNotBlank() }
+            .map { task ->
+                val startMin = parseTimeToMinutes(task.start)
+                val endMin = parseTimeToMinutes(task.end)
+                task.copy(
+                    title = task.title.trim(),
+                    start = String.format(Locale.US, "%02d:%02d", startMin / 60, startMin % 60),
+                    end = String.format(Locale.US, "%02d:%02d", endMin / 60, endMin % 60)
+                )
+            }
             .sortedBy { it.startMinutes }
-        if (sorted.isEmpty()) return
+        if (sorted.isEmpty()) {
+            showToast("Add at least one named task before saving")
+            return
+        }
         updateActiveProfile { it.copy(routine = sorted) }
         _uiState.update { it.copy(showEditRoutineSheet = false) }
         showToast("Routine updated (${sorted.size} tasks)")
@@ -392,16 +439,31 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         if (clean.isEmpty() || oldName == clean) return
         updateActiveProfile { p ->
             val updatedSubjects = p.subjects.map { if (it == oldName) clean else it }.distinct()
+            val updatedRoutine = p.routine.map {
+                if (it.subject == oldName) it.copy(subject = clean) else it
+            }
             val updatedSessions = p.focusSessions.map {
                 if (it.subject == oldName) it.copy(subject = clean) else it
             }
             val updatedDoubts = p.doubts.map {
                 if (it.subject == oldName) it.copy(subject = clean) else it
             }
-            p.copy(subjects = updatedSubjects, focusSessions = updatedSessions, doubts = updatedDoubts)
+            p.copy(
+                subjects = updatedSubjects,
+                routine = updatedRoutine,
+                focusSessions = updatedSessions,
+                doubts = updatedDoubts
+            )
         }
-        if (_uiState.value.timer.selectedSubject == oldName) {
-            _uiState.update { it.copy(timer = it.timer.copy(selectedSubject = clean)) }
+        _uiState.update { state ->
+            state.copy(
+                timer = if (state.timer.selectedSubject == oldName) {
+                    state.timer.copy(selectedSubject = clean)
+                } else state.timer,
+                ai = if (state.ai.doubtSubject == oldName) {
+                    state.ai.copy(doubtSubject = clean)
+                } else state.ai
+            )
         }
         showToast("Renamed to $clean")
     }
@@ -412,8 +474,15 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             else p.copy(subjects = p.subjects.filterNot { it == subject })
         }
         val first = _uiState.value.store.activeProfile?.subjects?.firstOrNull() ?: "Maths"
-        if (_uiState.value.timer.selectedSubject == subject) {
-            _uiState.update { it.copy(timer = it.timer.copy(selectedSubject = first)) }
+        _uiState.update { state ->
+            state.copy(
+                timer = if (state.timer.selectedSubject == subject) {
+                    state.timer.copy(selectedSubject = first)
+                } else state.timer,
+                ai = if (state.ai.doubtSubject == subject) {
+                    state.ai.copy(doubtSubject = first)
+                } else state.ai
+            )
         }
     }
 
@@ -665,7 +734,24 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     // ---- Gemini AI Hub: Multi-turn Chat, Audio Transcribe, Real-Time Voice Live, Tools ----
 
     fun selectAiHubSection(section: AiHubSection) {
-        _uiState.update { it.copy(ai = it.ai.copy(activeSection = section, errorMessage = null)) }
+        if (audioRecorder.isRecording) {
+            stopAudioRecordingClean()
+        }
+        _uiState.update {
+            it.copy(
+                ai = it.ai.copy(
+                    activeSection = section,
+                    isRecordingTranscript = false,
+                    isVoiceRecording = false,
+                    micAmplitude = 0f,
+                    errorMessage = null
+                )
+            )
+        }
+    }
+
+    fun clearAiError() {
+        _uiState.update { it.copy(ai = it.ai.copy(errorMessage = null)) }
     }
 
     fun selectChatMode(mode: AiChatMode) {

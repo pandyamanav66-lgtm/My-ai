@@ -208,7 +208,6 @@ private fun StudyTrackerRoot(
                             onNextDay = { vm.shiftSelectedDate(1) },
                             onPickDate = { vm.selectDate(it) },
                             onJumpToday = { vm.jumpToToday() },
-                            onOpenGame = { vm.setGameOverlayVisible(true) },
                             onOpenEditRoutine = { vm.setEditRoutineSheetVisible(true) },
                             onOpenProfile = { vm.setProfileSheetVisible(true) }
                         )
@@ -239,7 +238,8 @@ private fun StudyTrackerRoot(
 
                                     AppTab.DASHBOARD -> DashboardScreen(
                                         profile = activeProfile,
-                                        selectedDate = state.selectedDate
+                                        selectedDate = state.selectedDate,
+                                        onOpenGame = { vm.setGameOverlayVisible(true) }
                                     )
 
                                     AppTab.WEEKLY -> WeeklyScreen(
@@ -317,7 +317,11 @@ private fun StudyTrackerRoot(
                                         onRunExamPlanner = vm::runExamPlanner,
                                         onUpdateDoubtDraft = vm::updateDoubtDraft,
                                         onRunDoubtSolver = vm::runDoubtSolver,
-                                        onStopAi = vm::stopAiGeneration
+                                        onStopAi = vm::stopAiGeneration,
+                                        onDismissError = vm::clearAiError,
+                                        onCopyOutput = { txt ->
+                                            copyToClipboard("AI Response", txt, "AI response copied")
+                                        }
                                     )
                                 }
                             }

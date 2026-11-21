@@ -11,7 +11,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,7 +44,6 @@ fun HeaderBand(
     onNextDay: () -> Unit,
     onPickDate: (String) -> Unit,
     onJumpToday: () -> Unit,
-    onOpenGame: () -> Unit,
     onOpenEditRoutine: () -> Unit,
     onOpenProfile: () -> Unit
 ) {
@@ -53,25 +51,43 @@ fun HeaderBand(
     val context = LocalContext.current
     val isToday = selectedDate == todayKey()
 
+    // iOS 26 frosted translucent sapphire Liquid Glass top bar
     val headerGradient = remember(c.band, c.band2) {
         Brush.verticalGradient(
-            colors = listOf(c.band.copy(alpha = 0.96f), c.band2.copy(alpha = 0.88f))
+            colors = listOf(
+                c.band.copy(alpha = 0.90f),
+                c.band2.copy(alpha = 0.78f)
+            )
         )
     }
-    val glassBtnBg = Color(0x22FFFFFF)
-    val glassBtnBorder = Color(0x38FFFFFF)
+    val bottomSpecularRim = remember {
+        Brush.horizontalGradient(
+            colors = listOf(Color(0x38FFFFFF), Color(0x88FFFFFF), Color(0x38FFFFFF))
+        )
+    }
+    val glassCapsuleFill = remember {
+        Brush.verticalGradient(
+            colors = listOf(Color(0x36FFFFFF), Color(0x18FFFFFF))
+        )
+    }
+    val glassCapsuleRim = remember {
+        Brush.verticalGradient(
+            colors = listOf(Color(0x78FFFFFF), Color(0x28FFFFFF))
+        )
+    }
+    val headerShape = RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .clip(headerShape)
             .background(headerGradient)
             .border(
-                width = 1.dp,
+                width = 1.1.dp,
                 brush = Brush.verticalGradient(
-                    listOf(Color.Transparent, Color(0x45FFFFFF))
+                    listOf(Color.Transparent, Color(0x26FFFFFF), Color(0x6EFFFFFF))
                 ),
-                shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
+                shape = headerShape
             )
     ) {
         Column(
@@ -83,13 +99,13 @@ fun HeaderBand(
                 .padding(horizontal = 16.dp)
                 .padding(top = 10.dp, bottom = 14.dp)
         ) {
-            // Top bar: Logo + Greeting/Title + Game Arcade + Edit Pencil + Profile Avatar
+            // Clean, uncluttered top bar: Logo + Full Title + Edit Pencil + Profile Avatar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                BrandLogoMark(size = 36.dp)
+                BrandLogoMark(size = 38.dp)
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -110,7 +126,7 @@ fun HeaderBand(
                         style = TextStyle(
                             fontFamily = SpaceGroteskFontFamily,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
+                            fontSize = 16.sp,
                             lineHeight = 20.sp,
                             letterSpacing = (-0.2).sp,
                             color = c.onBand
@@ -127,32 +143,13 @@ fun HeaderBand(
                     )
                 }
 
-                // Study Break Arcade Game button
+                // Edit Routine glass button (48dp touch target)
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(14.dp))
-                        .clickable(onClick = onOpenGame)
-                        .testTag("open_game_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SportsEsports,
-                        contentDescription = "Play Orbit Pulse study break game",
-                        tint = c.gold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Edit Routine pencil button
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(14.dp))
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(glassCapsuleFill)
+                        .border(1.dp, glassCapsuleRim, CircleShape)
                         .clickable(onClick = onOpenEditRoutine)
                         .testTag("edit_routine_button"),
                     contentAlignment = Alignment.Center
@@ -165,13 +162,21 @@ fun HeaderBand(
                     )
                 }
 
-                // Initials Avatar (opens Profile sheet)
+                // Initials Avatar glass button (opens Profile sheet)
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(c.gold.copy(alpha = 0.24f))
-                        .border(1.dp, c.gold.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(c.gold.copy(alpha = 0.34f), c.gold.copy(alpha = 0.16f))
+                            )
+                        )
+                        .border(
+                            1.1.dp,
+                            Brush.verticalGradient(listOf(Color(0xA6FFFFFF), c.gold.copy(alpha = 0.85f))),
+                            CircleShape
+                        )
                         .clickable(onClick = onOpenProfile)
                         .testTag("profile_avatar_button"),
                     contentAlignment = Alignment.Center
@@ -190,7 +195,7 @@ fun HeaderBand(
 
             Spacer(Modifier.height(12.dp))
 
-            // Date Bar: Prev, Date Picker, Next, Today
+            // Liquid Glass Date Navigator Pill Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -199,9 +204,9 @@ fun HeaderBand(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(14.dp))
+                        .clip(CircleShape)
+                        .background(glassCapsuleFill)
+                        .border(1.dp, glassCapsuleRim, CircleShape)
                         .clickable(onClick = onPrevDay)
                         .testTag("prev_day_button"),
                     contentAlignment = Alignment.Center
@@ -217,9 +222,9 @@ fun HeaderBand(
                     modifier = Modifier
                         .weight(1f)
                         .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(glassCapsuleFill)
+                        .border(1.dp, glassCapsuleRim, RoundedCornerShape(99.dp))
                         .clickable {
                             val cal = keyToCalendar(selectedDate)
                             DatePickerDialog(
@@ -253,9 +258,9 @@ fun HeaderBand(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(14.dp))
+                        .clip(CircleShape)
+                        .background(glassCapsuleFill)
+                        .border(1.dp, glassCapsuleRim, CircleShape)
                         .clickable(onClick = onNextDay)
                         .testTag("next_day_button"),
                     contentAlignment = Alignment.Center
@@ -270,8 +275,15 @@ fun HeaderBand(
                 Box(
                     modifier = Modifier
                         .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isToday) c.gold.copy(alpha = 0.45f) else c.gold)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(
+                            if (isToday) {
+                                Brush.verticalGradient(listOf(c.gold.copy(alpha = 0.50f), c.gold.copy(alpha = 0.34f)))
+                            } else {
+                                Brush.verticalGradient(listOf(c.gold, c.gold.copy(alpha = 0.85f)))
+                            }
+                        )
+                        .border(1.dp, Color(0x88FFFFFF), RoundedCornerShape(99.dp))
                         .clickable(enabled = !isToday, onClick = onJumpToday)
                         .padding(horizontal = 14.dp)
                         .testTag("today_button"),
@@ -281,7 +293,7 @@ fun HeaderBand(
                         text = "Today",
                         style = TextStyle(
                             fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = c.band
                         )
@@ -291,7 +303,7 @@ fun HeaderBand(
 
             Spacer(Modifier.height(10.dp))
 
-            // Streak pill + Cloud status pill + Rest day pill
+            // Streak pill + Rest day pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -300,9 +312,9 @@ fun HeaderBand(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(99.dp))
-                        .background(glassBtnBg)
-                        .border(1.dp, glassBtnBorder, RoundedCornerShape(99.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .background(glassCapsuleFill)
+                        .border(1.dp, glassCapsuleRim, RoundedCornerShape(99.dp))
+                        .padding(horizontal = 11.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -329,7 +341,7 @@ fun HeaderBand(
                             .clip(RoundedCornerShape(99.dp))
                             .background(c.gold.copy(alpha = 0.25f))
                             .border(1.dp, c.gold, RoundedCornerShape(99.dp))
-                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
                         Text(
                             text = "Rest day",
@@ -344,5 +356,14 @@ fun HeaderBand(
                 }
             }
         }
+
+        // Subtle luminous specular glint along bottom edge
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.55f)
+                .height(1.dp)
+                .background(bottomSpecularRim)
+        )
     }
 }

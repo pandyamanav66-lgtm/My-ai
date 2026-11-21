@@ -172,11 +172,19 @@ fun OrbitPulseGameScreen(
         playTone(ToneGenerator.TONE_PROP_BEEP, 35)
     }
 
+    fun exitAndPreserveScore() {
+        if (score > 0 && !runReported) {
+            runReported = true
+            onFinishRun(score, wave)
+        }
+        onExit()
+    }
+
     BackHandler {
         when (phase) {
             GamePhase.PLAYING -> phase = GamePhase.PAUSED
             GamePhase.PAUSED -> phase = GamePhase.PLAYING
-            else -> onExit()
+            else -> exitAndPreserveScore()
         }
     }
 
@@ -568,8 +576,7 @@ fun OrbitPulseGameScreen(
                         .clickable {
                             when (phase) {
                                 GamePhase.PLAYING -> phase = GamePhase.PAUSED
-                                GamePhase.PAUSED -> phase = GamePhase.PLAYING
-                                else -> onExit()
+                                else -> exitAndPreserveScore()
                             }
                         }
                         .testTag("game_pause_exit_button"),
@@ -707,7 +714,7 @@ fun OrbitPulseGameScreen(
                                 Text("RESTART", color = Color(0xFFF4F1E8), fontWeight = FontWeight.SemiBold)
                             }
                             Spacer(Modifier.height(6.dp))
-                            TextButton(onClick = onExit) {
+                            TextButton(onClick = { exitAndPreserveScore() }) {
                                 Text("Exit to Study Tracker", color = Color(0xFFA2B5CE))
                             }
                         }

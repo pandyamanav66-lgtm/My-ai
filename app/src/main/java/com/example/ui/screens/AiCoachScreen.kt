@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,7 +85,9 @@ fun AiCoachScreen(
     onRunExamPlanner: (String, Int, String) -> Unit,
     onUpdateDoubtDraft: (String, String) -> Unit,
     onRunDoubtSolver: (String, String) -> Unit,
-    onStopAi: () -> Unit
+    onStopAi: () -> Unit,
+    onDismissError: () -> Unit = {},
+    onCopyOutput: (String) -> Unit = {}
 ) {
     val c = LocalDrstColors.current
     val context = LocalContext.current
@@ -134,7 +137,25 @@ fun AiCoachScreen(
     }
     var examWeakAreas by remember { mutableStateOf("") }
 
+    val listState = rememberLazyListState()
+
+    // Auto-scroll smoothly to AI output whenever Coach Tools starts streaming or finishes
+    LaunchedEffect(aiState.isStreaming, aiState.streamOutput.isNotEmpty(), aiState.previewRoutine != null, aiState.activeSection) {
+        if (aiState.activeSection == AiHubSection.TOOLS && (aiState.isStreaming || aiState.streamOutput.isNotBlank())) {
+            val lastIdx = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+            if (lastIdx > 0) listState.animateScrollToItem(lastIdx)
+        }
+    }
+
+    // Auto-scroll to error banner if an error occurs
+    LaunchedEffect(aiState.errorMessage) {
+        if (aiState.errorMessage != null) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -287,25 +308,32 @@ fun AiCoachScreen(
             }
         }
 
-        // Error Box (shared across all AI sections)
+        // Error Box (shared across all AI sections, with dismiss button)
         if (aiState.errorMessage != null) {
             item(key = "ai_error") {
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("ai_error_banner"),
+                    shape = RoundedCornerShape(18.dp),
                     color = c.badBg,
-                    border = BorderStroke(1.dp, c.badInk.copy(alpha = 0.45f))
+                    border = BorderStroke(1.dp, c.badInk.copy(alpha = 0.50f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = c.badInk)
                         Text(
                             text = aiState.errorMessage,
+                            modifier = Modifier.weight(1f),
                             style = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, color = c.badInk)
                         )
+                        IconButton(
+                            onClick = onDismissError,
+                            modifier = Modifier.size(40.dp).testTag("ai_error_dismiss")
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Dismiss error", tint = c.badInk, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -1063,7 +1091,7 @@ fun AiCoachScreen(
                     }
                 }
 
-                // 3. Streaming Output Card for Tools
+                // 3. Streaming Output Card for Tools (with Copy action)
                 if (aiState.streamOutput.isNotBlank() || aiState.isStreaming) {
                     item(key = "ai_output") {
                         DrstCard(title = if (aiState.isStreaming) "Gemini is thinking..." else "AI Coach Response") {
@@ -1077,7 +1105,7 @@ fun AiCoachScreen(
                                         strokeWidth = 2.dp,
                                         color = c.gold
                                     )
-                                    Text("Streaming answer in ${profile.aiLanguage}...", fontSize = 13.sp, color = c.muted)
+                                    Text("Generating answer in ${profile.aiLanguage}...", fontSize = 13.sp, color = c.muted)
                                 }
                             } else {
                                 Text(
@@ -1090,6 +1118,25 @@ fun AiCoachScreen(
                                     ),
                                     modifier = Modifier.testTag("ai_stream_output")
                                 )
+                                if (!aiState.isStreaming && aiState.streamOutput.isNotBlank()) {
+                                    Spacer(Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { onCopyOutput(aiState.streamOutput) },
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            border = BorderStroke(1.dp, c.line),
+                                            modifier = Modifier.height(36.dp).testTag("copy_ai_output_button")
+                                        ) {
+                                            Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp), tint = c.ink)
+                                            Spacer(Modifier.width(5.dp))
+                                            Text("Copy", fontSize = 12.sp, color = c.ink)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1323,20 +1370,26 @@ private fun AiActionRow(
         Button(
             onClick = onPrimary,
             enabled = enabled && !isStreaming,
-            modifier = Modifier.weight(1f).height(46.dp).testTag(testTag),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.weight(1f).height(48.dp).testTag(testTag),
+            shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
         ) {
-            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp), tint = c.gold)
-            Spacer(Modifier.width(6.dp))
-            Text(primaryLabel, fontWeight = FontWeight.Bold)
+            if (isStreaming) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = c.gold)
+                Spacer(Modifier.width(8.dp))
+                Text("Generating...", fontWeight = FontWeight.Bold)
+            } else {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(17.dp), tint = c.gold)
+                Spacer(Modifier.width(6.dp))
+                Text(primaryLabel, fontWeight = FontWeight.Bold)
+            }
         }
 
         if (isStreaming) {
             OutlinedButton(
                 onClick = onStop,
-                modifier = Modifier.height(46.dp).testTag("ai_stop_button"),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(48.dp).testTag("ai_stop_button"),
+                shape = RoundedCornerShape(14.dp),
                 border = BorderStroke(1.dp, c.badInk)
             ) {
                 Icon(Icons.Rounded.Stop, contentDescription = "Stop AI", tint = c.badInk, modifier = Modifier.size(18.dp))

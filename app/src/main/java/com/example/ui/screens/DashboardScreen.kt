@@ -1,19 +1,25 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,7 +38,8 @@ import kotlin.math.roundToInt
 @Composable
 fun DashboardScreen(
     profile: UserProfile,
-    selectedDate: String
+    selectedDate: String,
+    onOpenGame: () -> Unit = {}
 ) {
     val c = LocalDrstColors.current
     val dayLog = profile.days[selectedDate] ?: DayLog()
@@ -71,7 +78,7 @@ fun DashboardScreen(
     )
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("dashboard_list"),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -99,6 +106,106 @@ fun DashboardScreen(
                                 Spacer(Modifier.weight(1f))
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // 2. Study Break Arcade • Orbit Pulse (placed cleanly in Dashboard & Focus, away from top/bottom bars)
+        item(key = "dashboard_orbit_pulse_card") {
+            val shape = RoundedCornerShape(24.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(c.band.copy(alpha = 0.90f), c.band2.copy(alpha = 0.82f))
+                        )
+                    )
+                    .border(
+                        1.1.dp,
+                        Brush.linearGradient(listOf(Color(0x88FFFFFF), c.gold.copy(alpha = 0.72f))),
+                        shape
+                    )
+                    .clickable(onClick = onOpenGame)
+                    .padding(16.dp)
+                    .testTag("dashboard_play_game_button")
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(c.gold.copy(alpha = 0.22f))
+                            .border(1.dp, c.gold.copy(alpha = 0.75f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SportsEsports,
+                            contentDescription = "Orbit Pulse study break game",
+                            tint = c.gold,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "STUDY BREAK ARCADE",
+                            style = TextStyle(
+                                fontFamily = InterFontFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 10.sp,
+                                letterSpacing = 0.9.sp,
+                                color = c.gold
+                            )
+                        )
+                        Text(
+                            text = "Orbit Pulse",
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp,
+                                color = c.onBand
+                            )
+                        )
+                        Text(
+                            text = "Best: ${profile.bestGameScore} • Wave ${profile.bestGameWave.coerceAtLeast(1)} • Earn XP",
+                            style = TextStyle(
+                                fontFamily = InterFontFamily,
+                                fontSize = 11.sp,
+                                color = c.onBandMuted
+                            )
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(c.gold)
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = c.band,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Play",
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = c.band
+                            )
+                        )
                     }
                 }
             }
@@ -299,14 +406,18 @@ private fun KpiTileCard(
     modifier: Modifier = Modifier
 ) {
     val c = LocalDrstColors.current
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.line),
-        shadowElevation = 2.dp
+    val shape = RoundedCornerShape(20.dp)
+    val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom) {
+        Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom))
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(c.glassFill)
+            .background(Brush.verticalGradient(listOf(c.glassHighlight, Color.Transparent)))
+            .border(1.1.dp, rimBrush, shape)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(13.dp)) {
             Text(
                 text = label.uppercase(),
                 maxLines = 1,
