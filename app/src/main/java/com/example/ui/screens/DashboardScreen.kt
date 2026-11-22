@@ -8,8 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +34,13 @@ import com.example.ui.theme.SpaceGroteskFontFamily
 import com.example.ui.theme.categoryColor
 import java.util.Locale
 import kotlin.math.roundToInt
+
+private data class BentoStat(
+    val label: String,
+    val value: String,
+    val accent: Color,
+    val icon: ImageVector
+)
 
 @Composable
 fun DashboardScreen(
@@ -56,7 +63,7 @@ fun DashboardScreen(
     val weekAvg = weekDays.map { Analytics.completionPercent(profile, it) }.average().roundToInt()
     val focusMin7d = profile.focusSessions.filter { it.date in weekDays }.sumOf { it.minutes }
     val totalXp = Analytics.totalXp(profile)
-    val (level, levelTitle, _) = Analytics.levelInfo(totalXp)
+    val (level, levelTitle, levelProgress) = Analytics.levelInfo(totalXp)
 
     val studyTasks = remember(profile.routine) { profile.routine.filter { it.isStudyTask } }
     val categoryGroups = remember(profile.routine) {
@@ -66,41 +73,125 @@ fun DashboardScreen(
         Analytics.subjectHoursInDateRange(profile, weekDays)
     }
 
-    val kpis = listOf(
-        Triple("Completion", "$pct%", if (pct >= 75) c.okInk else c.warnInk),
-        Triple("Tasks Done", "$completed / $total", c.ink),
-        Triple("Study Today", String.format(Locale.US, "%.1f h", studyHrs), c.goldInk),
-        Triple("Goal Met", "$goalPct%", if (goalPct >= 100) c.goldInk else c.ink),
-        Triple("Streak (75%+)", "$streak days", c.okInk),
-        Triple("Week Avg", "$weekAvg%", if (weekAvg >= 75) c.okInk else c.warnInk),
-        Triple("Focus (Week)", "${focusMin7d}m", c.ink),
-        Triple("Level $level", "$totalXp XP", c.goldInk)
+    val bentoStats = listOf(
+        BentoStat("Tasks Done", "$completed/$total", c.prismCyan, Icons.Rounded.TaskAlt),
+        BentoStat("Study Today", String.format(Locale.US, "%.1fh", studyHrs), c.gold, Icons.Rounded.MenuBook),
+        BentoStat("Goal Met", "$goalPct%", if (goalPct >= 100) c.ok else c.prismViolet, Icons.Rounded.Flag),
+        BentoStat("Streak", "$streak days", c.prismCoral, Icons.Rounded.LocalFireDepartment),
+        BentoStat("Week Avg", "$weekAvg%", if (weekAvg >= 75) c.ok else c.warn, Icons.Rounded.TrendingUp),
+        BentoStat("Focus 7d", "${focusMin7d}m", c.prismViolet, Icons.Rounded.Bolt)
     )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("dashboard_list"),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 114.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. 8 KPI Tiles (2x4 on compact, 4x2 on wide)
+        // 1. Hero Bento Card: Completion Ring + Level XP + Momentum Badge
+        item(key = "hero_bento") {
+            val statusText = when {
+                pct >= 80 -> "Strong Momentum"
+                pct >= 50 -> "On Track"
+                else -> "Let's Roll!"
+            }
+            val statusColor = when {
+                pct >= 80 -> c.ok
+                pct >= 50 -> c.gold
+                else -> c.prismCyan
+            }
+
+            DrstCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CompletionRing(
+                        percent = pct,
+                        size = 126.dp,
+                        strokeWidth = 11.dp,
+                        label = "TODAY"
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(statusColor.copy(alpha = 0.18f))
+                                .border(1.dp, statusColor.copy(alpha = 0.5f), RoundedCornerShape(99.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = statusText,
+                                style = TextStyle(
+                                    fontFamily = SpaceGroteskFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (c.isDark) statusColor else c.ink
+                                )
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Level $level • $levelTitle",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    fontFamily = SpaceGroteskFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = c.ink
+                                )
+                            )
+                            Text(
+                                text = "$totalXp XP earned",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 12.sp,
+                                    color = c.muted
+                                )
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(c.track)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(levelProgress.coerceIn(0.06f, 1f))
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(
+                                        Brush.horizontalGradient(listOf(c.prismCyan, c.prismViolet, c.gold))
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Playful Bento Glass Stats Grid (2x3 compact, 3x2 wide)
         item(key = "kpi_grid") {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cols = if (maxWidth >= 600.dp) 4 else 2
-                val rows = kpis.chunked(cols)
+                val cols = if (maxWidth >= 600.dp) 3 else 2
+                val rows = bentoStats.chunked(cols)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     rows.forEach { rowItems ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            rowItems.forEach { (label, value, color) ->
-                                KpiTileCard(
-                                    label = label,
-                                    value = value,
-                                    valueColor = color,
-                                    subtitle = if (label.startsWith("Level")) levelTitle else null,
-                                    modifier = Modifier.weight(1f)
-                                )
+                            rowItems.forEach { stat ->
+                                BentoStatTile(stat = stat, modifier = Modifier.weight(1f))
                             }
                             repeat(cols - rowItems.size) {
                                 Spacer(Modifier.weight(1f))
@@ -111,21 +202,24 @@ fun DashboardScreen(
             }
         }
 
-        // 2. Study Break Arcade • Orbit Pulse (placed cleanly in Dashboard & Focus, away from top/bottom bars)
-        item(key = "dashboard_orbit_pulse_card") {
-            val shape = RoundedCornerShape(24.dp)
+        // 3. Vibrant Prism "Mind Lab" Study Focus Trainer Card (cleanly off top/bottom bars)
+        item(key = "dashboard_mind_game_card") {
+            val shape = RoundedCornerShape(26.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(shape)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(c.band.copy(alpha = 0.90f), c.band2.copy(alpha = 0.82f))
+                            colors = listOf(
+                                c.band.copy(alpha = 0.90f),
+                                c.band2.copy(alpha = 0.84f)
+                            )
                         )
                     )
                     .border(
-                        1.1.dp,
-                        Brush.linearGradient(listOf(Color(0x88FFFFFF), c.gold.copy(alpha = 0.72f))),
+                        1.2.dp,
+                        Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.85f), c.prismViolet.copy(alpha = 0.75f), c.gold.copy(alpha = 0.75f))),
                         shape
                     )
                     .clickable(onClick = onOpenGame)
@@ -140,32 +234,34 @@ fun DashboardScreen(
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .clip(CircleShape)
-                            .background(c.gold.copy(alpha = 0.22f))
-                            .border(1.dp, c.gold.copy(alpha = 0.75f), CircleShape),
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.30f), c.prismViolet.copy(alpha = 0.35f)))
+                            )
+                            .border(1.dp, Color(0x80FFFFFF), RoundedCornerShape(16.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.SportsEsports,
-                            contentDescription = "Orbit Pulse study break game",
-                            tint = c.gold,
-                            modifier = Modifier.size(24.dp)
+                            imageVector = Icons.Rounded.Psychology,
+                            contentDescription = "Mind Lab study focus game",
+                            tint = c.prismCyan,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "STUDY BREAK ARCADE",
+                            text = "MIND LAB • FOCUS TRAINER",
                             style = TextStyle(
                                 fontFamily = InterFontFamily,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
-                                letterSpacing = 0.9.sp,
-                                color = c.gold
+                                letterSpacing = 1.sp,
+                                color = c.prismCyan
                             )
                         )
                         Text(
-                            text = "Orbit Pulse",
+                            text = "Memory • Stroop • Math",
                             style = TextStyle(
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
@@ -174,7 +270,7 @@ fun DashboardScreen(
                             )
                         )
                         Text(
-                            text = "Best: ${profile.bestGameScore} • Wave ${profile.bestGameWave.coerceAtLeast(1)} • Earn XP",
+                            text = "Best ${profile.bestGameScore} • Lvl ${profile.bestGameWave.coerceAtLeast(1)} • Earn Study XP",
                             style = TextStyle(
                                 fontFamily = InterFontFamily,
                                 fontSize = 11.sp,
@@ -186,24 +282,24 @@ fun DashboardScreen(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(99.dp))
-                            .background(c.gold)
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                            .background(Brush.horizontalGradient(listOf(c.prismCyan, c.ok)))
+                            .padding(horizontal = 15.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.PlayArrow,
                             contentDescription = null,
-                            tint = c.band,
+                            tint = Color(0xFF061322),
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Play",
+                            text = "Train",
                             style = TextStyle(
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = c.band
+                                color = Color(0xFF061322)
                             )
                         )
                     }
@@ -211,57 +307,76 @@ fun DashboardScreen(
             }
         }
 
-        // 2. Daily Completion Ring Card
-        item(key = "daily_ring_card") {
-            val statusText = when {
-                pct >= 80 -> "Strong Day"
-                pct >= 50 -> "On Track"
-                else -> "Needs Momentum"
-            }
-            val statusBg = when {
-                pct >= 80 -> c.okBg
-                pct >= 50 -> c.warnBg
-                else -> c.badBg
-            }
-            val statusInk = when {
-                pct >= 80 -> c.okInk
-                pct >= 50 -> c.warnInk
-                else -> c.badInk
-            }
-
-            DrstCard(title = "Daily Completion") {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+        // 4. This-Week Daily Columns (crystal prism pillars)
+        item(key = "week_columns_card") {
+            val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+            DrstCard(title = "This Week Momentum") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(144.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    CompletionRing(
-                        percent = pct,
-                        size = 176.dp,
-                        strokeWidth = 13.dp,
-                        label = "COMPLETED"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(99.dp))
-                            .background(statusBg)
-                            .padding(horizontal = 14.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = statusText,
-                            style = TextStyle(
-                                fontFamily = SpaceGroteskFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = statusInk
+                    weekDays.forEachIndexed { idx, dKey ->
+                        val dPct = Analytics.completionPercent(profile, dKey)
+                        val isRest = profile.days[dKey]?.isRestDay == true
+                        val isSelected = dKey == selectedDate
+                        val barBrush = when {
+                            isRest -> Brush.verticalGradient(listOf(c.prismViolet, c.prismViolet.copy(alpha = 0.55f)))
+                            dPct >= 75 -> Brush.verticalGradient(listOf(c.prismCyan, c.ok))
+                            dPct > 0 -> Brush.verticalGradient(listOf(c.gold, c.prismCoral))
+                            else -> Brush.verticalGradient(listOf(c.track, c.track))
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Bottom
+                        ) {
+                            Text(
+                                text = "$dPct%",
+                                style = TextStyle(
+                                    fontFamily = SpaceGroteskFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    color = if (isSelected) c.ink else c.muted
+                                )
                             )
-                        )
+                            Spacer(Modifier.height(5.dp))
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(max = 28.dp)
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(c.track.copy(alpha = 0.45f)),
+                                contentAlignment = Alignment.BottomCenter
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .fillMaxHeight((dPct / 100f).coerceAtLeast(0.08f))
+                                        .clip(RoundedCornerShape(99.dp))
+                                        .background(barBrush)
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = dayLabels[idx],
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 11.sp,
+                                    color = if (isSelected) c.prismCyan else c.muted
+                                )
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // 3. Study Sessions Bars
+        // 5. Study Sessions Bars
         item(key = "study_sessions_card") {
             DrstCard(title = "Study Sessions (${formatCompactDate(selectedDate)})") {
                 if (studyTasks.isEmpty()) {
@@ -275,9 +390,9 @@ fun DashboardScreen(
                             val done = task.id in dayLog.completedIds
                             HorizontalBarRow(
                                 label = task.subject.ifBlank { task.title },
-                                fraction = if (done) 1f else 0.12f,
+                                fraction = if (done) 1f else 0.14f,
                                 valueText = if (done) formatDuration(task.durationMinutes) else "Pending",
-                                barColor = if (done) c.ok else c.gold.copy(alpha = 0.4f)
+                                barColor = if (done) c.ok else c.prismViolet.copy(alpha = 0.45f)
                             )
                         }
                     }
@@ -285,7 +400,7 @@ fun DashboardScreen(
             }
         }
 
-        // 4. By-Category Bars
+        // 6. By-Category Bars
         item(key = "by_category_card") {
             DrstCard(title = "By Category") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -304,74 +419,7 @@ fun DashboardScreen(
             }
         }
 
-        // 5. This-Week Daily Columns
-        item(key = "week_columns_card") {
-            val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-            DrstCard(title = "This Week Daily Completion") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    weekDays.forEachIndexed { idx, dKey ->
-                        val dPct = Analytics.completionPercent(profile, dKey)
-                        val isRest = profile.days[dKey]?.isRestDay == true
-                        val isSelected = dKey == selectedDate
-                        val barColor = when {
-                            isRest -> c.gold
-                            dPct >= 75 -> c.ok
-                            dPct > 0 -> c.warn
-                            else -> c.track
-                        }
-                        Column(
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom
-                        ) {
-                            Text(
-                                text = "$dPct%",
-                                style = TextStyle(
-                                    fontFamily = SpaceGroteskFontFamily,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 10.sp,
-                                    color = if (isSelected) c.ink else c.muted
-                                )
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(max = 32.dp)
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                contentAlignment = Alignment.BottomCenter
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .fillMaxHeight((dPct / 100f).coerceAtLeast(0.06f))
-                                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
-                                        .background(barColor)
-                                )
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = dayLabels[idx],
-                                style = TextStyle(
-                                    fontFamily = InterFontFamily,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 11.sp,
-                                    color = if (isSelected) c.goldInk else c.muted
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 6. Hours by Subject This Week
+        // 7. Hours by Subject This Week
         item(key = "subject_hours_week_card") {
             DrstCard(title = "Hours by Subject This Week") {
                 if (weekSubjectHours.isEmpty()) {
@@ -387,7 +435,7 @@ fun DashboardScreen(
                                 label = subject,
                                 fraction = (hours / maxHrs).toFloat().coerceIn(0f, 1f),
                                 valueText = String.format(Locale.US, "%.1f h", hours),
-                                barColor = c.gold
+                                barColor = c.prismCyan
                             )
                         }
                     }
@@ -398,59 +446,64 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun KpiTileCard(
-    label: String,
-    value: String,
-    valueColor: Color,
-    subtitle: String? = null,
+private fun BentoStatTile(
+    stat: BentoStat,
     modifier: Modifier = Modifier
 ) {
     val c = LocalDrstColors.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(22.dp)
     val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom) {
         Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom))
     }
-    Box(
+    Row(
         modifier = modifier
             .clip(shape)
-            .background(c.glassFill)
-            .background(Brush.verticalGradient(listOf(c.glassHighlight, Color.Transparent)))
-            .border(1.1.dp, rimBrush, shape)
+            .background(if (c.isDark) Color(0x660D132B) else Color(0xCCFFFFFF))
+            .background(Brush.verticalGradient(listOf(c.glassHighlight, c.glassFill)))
+            .border(1.dp, rimBrush, shape)
+            .padding(horizontal = 13.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        Column(modifier = Modifier.padding(13.dp)) {
-            Text(
-                text = label.uppercase(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    fontFamily = InterFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 10.sp,
-                    letterSpacing = 0.8.sp,
-                    color = c.muted
-                )
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(stat.accent.copy(alpha = 0.18f))
+                .border(1.dp, stat.accent.copy(alpha = 0.45f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = stat.icon,
+                contentDescription = null,
+                tint = stat.accent,
+                modifier = Modifier.size(19.dp)
             )
-            Spacer(Modifier.height(2.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = value,
+                text = stat.value,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
                     fontFamily = SpaceGroteskFontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    color = valueColor,
+                    fontSize = 19.sp,
+                    color = c.ink,
                     fontFeatureSettings = "tnum"
                 )
             )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
+            Text(
+                text = stat.label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(
+                    fontFamily = InterFontFamily,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                    color = c.muted
                 )
-            }
+            )
         }
     }
 }
@@ -498,7 +551,7 @@ fun HorizontalBarRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(10.dp)
+                .height(9.dp)
                 .clip(RoundedCornerShape(99.dp))
                 .background(c.track)
         ) {
@@ -507,7 +560,9 @@ fun HorizontalBarRow(
                     .fillMaxHeight()
                     .fillMaxWidth(fraction.coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(99.dp))
-                    .background(barColor)
+                    .background(
+                        Brush.horizontalGradient(listOf(barColor, barColor.copy(alpha = 0.72f)))
+                    )
             )
         }
 

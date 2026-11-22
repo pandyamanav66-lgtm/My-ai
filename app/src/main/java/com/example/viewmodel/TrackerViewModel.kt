@@ -712,7 +712,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         runDoubtSolver(doubt.subject, doubt.text)
     }
 
-    // ---- Orbit Pulse Study Break Game ----
+    // ---- Mind Lab Study Focus Trainer ----
 
     fun recordGameRun(score: Int, wave: Int) {
         val earnedXp = (score / 10).coerceAtLeast(0)
@@ -727,9 +727,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
         if (isNewBest && score > 0) {
             triggerConfetti()
-            showToast("New Orbit Pulse Best: $score! (+$earnedXp Study XP)")
+            showToast("New Mind Lab Best: $score! (+$earnedXp Study XP)")
         } else if (earnedXp > 0) {
-            showToast("Orbit Pulse finished! +$earnedXp Study XP")
+            showToast("Mind Lab finished! +$earnedXp Study XP")
         }
         checkAndUnlockBadges()
     }

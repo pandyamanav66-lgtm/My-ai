@@ -14,6 +14,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +32,7 @@ import com.example.ui.components.FloatingTabBar
 import com.example.ui.components.HeaderBand
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.components.ToastBanner
+import com.example.ui.components.backdropBlurIfSupported
 import com.example.ui.screens.*
 import com.example.ui.sheets.EditRoutineSheet
 import com.example.ui.sheets.ProfileSheet
@@ -42,15 +47,29 @@ class MainActivity : ComponentActivity() {
         // STEP 1: Configure Firebase App Check with launch intent BEFORE UI or ViewModels (for Firebase AI Logic)
         configureAppCheck(this, intent)
 
-        // STEP 2: Enable edge-to-edge with light icons over our deep glass header band
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
-        )
+        // STEP 2: Enable edge-to-edge full bleed
+        enableEdgeToEdge()
 
         setContent {
             val vm: TrackerViewModel = viewModel()
             val state by vm.uiState.collectAsStateWithLifecycle()
+            val sysDark = isSystemInDarkTheme()
+            val effectiveDark = when (state.store.theme) {
+                "dark" -> true
+                "light" -> false
+                else -> sysDark
+            }
+
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = if (effectiveDark) {
+                        SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                    },
+                    navigationBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                )
+            }
 
             StudyTrackerTheme(themeMode = state.store.theme) {
                 StudyTrackerRoot(vm = vm, state = state)
@@ -203,9 +222,19 @@ private fun StudyTrackerRoot(
 
                 val streak = remember(activeProfile) { Analytics.calculateStreak(activeProfile, todayKey()) }
                 val isRestDay = activeProfile.days[state.selectedDate]?.isRestDay == true
+                val anyModalOpen = state.showEditRoutineSheet || state.showProfileSheet || state.showGameOverlay
+                val modalBackdropBlur by animateDpAsState(
+                    targetValue = if (anyModalOpen) 18.dp else 0.dp,
+                    animationSpec = tween(durationMillis = 220),
+                    label = "modal_backdrop_blur"
+                )
 
                 LiquidGlassBackdrop {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .backdropBlurIfSupported(modalBackdropBlur)
+                    ) {
                         HeaderBand(
                             profile = activeProfile,
                             selectedDate = state.selectedDate,
@@ -230,7 +259,12 @@ private fun StudyTrackerRoot(
                                     .widthIn(max = 960.dp)
                                     .fillMaxSize()
                             ) {
-                                when (state.selectedTab) {
+                                Crossfade(
+                                    targetState = state.selectedTab,
+                                    animationSpec = tween(durationMillis = 190),
+                                    label = "tab_crossfade"
+                                ) { tab ->
+                                    when (tab) {
                                     AppTab.CHECKLIST -> ChecklistScreen(
                                         profile = activeProfile,
                                         selectedDate = state.selectedDate,
@@ -326,10 +360,11 @@ private fun StudyTrackerRoot(
                                         onRunDoubtSolver = vm::runDoubtSolver,
                                         onStopAi = vm::stopAiGeneration,
                                         onDismissError = vm::clearAiError,
-                                        onCopyOutput = { txt ->
-                                            copyToClipboard("AI Response", txt, "AI response copied")
-                                        }
-                                    )
+                                            onCopyOutput = { txt ->
+                                                copyToClipboard("AI Response", txt, "AI response copied")
+                                            }
+                                        )
+                                    }
                                 }
                             }
 
@@ -375,11 +410,11 @@ private fun StudyTrackerRoot(
                         )
                     }
 
-                    // Full-viewport 60fps Study Break Arcade Game Overlay
+                    // Full-viewport Mind Lab • Study Focus Trainer Overlay
                     if (state.showGameOverlay) {
-                        OrbitPulseGameScreen(
+                        MindFocusGameScreen(
                             bestScore = activeProfile.bestGameScore,
-                            bestWave = activeProfile.bestGameWave,
+                            bestLevel = activeProfile.bestGameWave,
                             onFinishRun = vm::recordGameRun,
                             onExit = { vm.setGameOverlayVisible(false) }
                         )

@@ -157,10 +157,10 @@ fun AiCoachScreen(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 116.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 0. 4-Mode Liquid Glass AI Hub Switcher + Language Bar
+        // 0. 4-Mode Prism Liquid Glass AI Hub Switcher + Language Bar
         item(key = "ai_hub_switcher") {
             DrstCard {
                 Row(
@@ -170,20 +170,25 @@ fun AiCoachScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(c.gold.copy(alpha = 0.22f)),
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(c.prismCyan.copy(alpha = 0.28f), c.prismViolet.copy(alpha = 0.32f))
+                                    )
+                                )
+                                .border(1.dp, c.prismCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Rounded.AutoAwesome,
                                 contentDescription = null,
-                                tint = c.goldInk,
-                                modifier = Modifier.size(16.dp)
+                                tint = c.prismCyan,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                         Column {
@@ -192,29 +197,33 @@ fun AiCoachScreen(
                                 style = TextStyle(
                                     fontFamily = SpaceGroteskFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
+                                    fontSize = 17.sp,
                                     color = c.ink
                                 )
                             )
                             Text(
-                                text = "Chat • Live Voice • Transcribe • Study Tools",
+                                text = "Chat • Live Voice • Transcribe • Tools",
                                 style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
                             )
                         }
                     }
 
-                    // Compact language pill toggle
+                    // Compact language prism pill toggle
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(99.dp))
-                            .background(c.gold.copy(alpha = 0.22f))
-                            .border(1.dp, c.gold.copy(alpha = 0.55f), RoundedCornerShape(99.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(c.prismCyan.copy(alpha = 0.22f), c.prismViolet.copy(alpha = 0.22f))
+                                )
+                            )
+                            .border(1.dp, c.prismCyan.copy(alpha = 0.55f), RoundedCornerShape(99.dp))
                             .clickable {
                                 val idx = AI_LANGUAGES.indexOf(profile.aiLanguage)
                                 val next = AI_LANGUAGES[(idx + 1) % AI_LANGUAGES.size]
                                 onSetLanguage(next)
                             }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .padding(horizontal = 11.dp, vertical = 6.dp)
                             .testTag("ai_language_cycle")
                     ) {
                         Text(
@@ -223,7 +232,7 @@ fun AiCoachScreen(
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = c.goldInk
+                                color = c.ink
                             )
                         )
                     }

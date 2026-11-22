@@ -55,48 +55,62 @@ fun SplashScreen(onFinished: () -> Unit) {
         onFinished()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(c.band)
-            .safeDrawingPadding(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 32.dp)
+    LiquidGlassBackdrop {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding(),
+            contentAlignment = Alignment.Center
         ) {
-            BrandLogoMark(
-                size = 96.dp,
-                arcProgress = arcAnim.value,
-                checkProgress = checkAnim.value,
-                arcColor = c.gold,
-                checkColor = c.onBand
-            )
-            Spacer(Modifier.height(22.dp))
-            Text(
-                text = "Daily Routine & Study Tracker",
-                textAlign = TextAlign.Center,
-                modifier = Modifier.alpha(textAlpha.value),
-                style = TextStyle(
-                    fontFamily = SpaceGroteskFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
-                    lineHeight = 29.sp,
-                    color = c.onBand
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(116.dp)
+                        .clip(CircleShape)
+                        .background(c.glassFill)
+                        .border(
+                            1.3.dp,
+                            Brush.linearGradient(listOf(c.glassBorderTop, c.prismCyan.copy(alpha = 0.7f))),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BrandLogoMark(
+                        size = 76.dp,
+                        arcProgress = arcAnim.value,
+                        checkProgress = checkAnim.value,
+                        arcColor = c.prismCyan,
+                        checkColor = c.ink
+                    )
+                }
+                Spacer(Modifier.height(22.dp))
+                Text(
+                    text = "Study Tracker",
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.alpha(textAlpha.value),
+                    style = TextStyle(
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 28.sp,
+                        letterSpacing = (-0.5).sp,
+                        color = c.ink
+                    )
                 )
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "by Manav Pandya",
-                modifier = Modifier.alpha(textAlpha.value),
-                style = TextStyle(
-                    fontFamily = InterFontFamily,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
-                    color = c.gold
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Daily Routine & Focus • by Manav Pandya",
+                    modifier = Modifier.alpha(textAlpha.value),
+                    style = TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp,
+                        color = c.muted
+                    )
                 )
-            )
+            }
         }
     }
 }

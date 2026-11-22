@@ -27,7 +27,7 @@ data class DrstColors(
     val warnInk: Color,
     val badBg: Color,
     val badInk: Color,
-    // Authentic iOS 26 Liquid Glass tokens
+    // Prism iOS 26 Liquid Glass tokens
     val glassFill: Color,
     val glassFillStrong: Color,
     val glassBorderTop: Color,
@@ -39,97 +39,113 @@ data class DrstColors(
     val orbPrimary: Color,
     val orbGold: Color,
     val orbAccent: Color,
+    val prismCyan: Color,
+    val prismViolet: Color,
+    val prismCoral: Color,
     val isDark: Boolean
 )
 
+/**
+ * Airy Glacier Prism — Minimal, luminous, joyful light Liquid Glass palette.
+ */
 val LightDrstColors = DrstColors(
-    bg = Color(0xFFE9F0FA),
-    surface = Color(0xCCFFFFFF),
-    surface2 = Color(0x99F3F7FD),
-    ink = Color(0xFF0A1B33),
-    muted = Color(0xFF4F627D),
-    line = Color(0x8AFFFFFF),
-    band = Color(0xFF0C2240),
-    band2 = Color(0xFF1A3D6B),
-    onBand = Color(0xFFF8FAFC),
-    onBandMuted = Color(0xFFBDD0E8),
-    gold = Color(0xFFD2A44F),
-    goldInk = Color(0xFF8C641E),
-    track = Color(0x260A1B33),
-    ok = Color(0xFF1EA86B),
-    okBg = Color(0xB8D9F7E8),
-    okInk = Color(0xFF0E5C38),
-    warn = Color(0xFFE5A100),
-    warnBg = Color(0xB8FFF1C2),
-    warnInk = Color(0xFF7D5600),
-    badBg = Color(0xC2FDE0D2),
-    badInk = Color(0xFF9E3311),
-    // iOS 26 Liquid Glass Light (luminous glacial frost + crystal white specular edges)
-    glassFill = Color(0xA6FFFFFF),
-    glassFillStrong = Color(0xD9FFFFFF),
-    glassBorderTop = Color(0xF5FFFFFF),
-    glassBorderBottom = Color(0x5CA9C0E0),
-    glassHighlight = Color(0x94FFFFFF),
-    bgGradTop = Color(0xFFDCEBFF),
-    bgGradMid = Color(0xFFF4EFF8),
-    bgGradBottom = Color(0xFFDCEBF9),
-    orbPrimary = Color(0x524A90FF),
-    orbGold = Color(0x4DE5BE72),
-    orbAccent = Color(0x4226C6B8),
+    bg = Color(0xFFF2F6FF),
+    surface = Color(0xD6FFFFFF),
+    surface2 = Color(0xA6F5F8FF),
+    ink = Color(0xFF0F172A),
+    muted = Color(0xFF5A6B86),
+    line = Color(0x99FFFFFF),
+    band = Color(0xFF1A2352),
+    band2 = Color(0xFF33418F),
+    onBand = Color(0xFFFAFBFD),
+    onBandMuted = Color(0xFFC9D6FA),
+    gold = Color(0xFFFF9F2E),
+    goldInk = Color(0xFFC25E00),
+    track = Color(0x1E0F172A),
+    ok = Color(0xFF10B981),
+    okBg = Color(0xB8D8FAEC),
+    okInk = Color(0xFF047857),
+    warn = Color(0xFFF59E0B),
+    warnBg = Color(0xB8FEF3C7),
+    warnInk = Color(0xFFB45309),
+    badBg = Color(0xCCFFE4E6),
+    badInk = Color(0xFFBE123C),
+    // Airy crystal frost glass
+    glassFill = Color(0xB8FFFFFF),
+    glassFillStrong = Color(0xE6FFFFFF),
+    glassBorderTop = Color(0xFFFFFFFF),
+    glassBorderBottom = Color(0x66B8CCF0),
+    glassHighlight = Color(0xA6FFFFFF),
+    bgGradTop = Color(0xFFE7F1FF),
+    bgGradMid = Color(0xFFF7F2FF),
+    bgGradBottom = Color(0xFFE6FAF6),
+    orbPrimary = Color(0x6638BDF8),
+    orbGold = Color(0x52FB923C),
+    orbAccent = Color(0x52A78BFA),
+    prismCyan = Color(0xFF0EA5E9),
+    prismViolet = Color(0xFF7C3AED),
+    prismCoral = Color(0xFFFF6B6B),
     isDark = false
 )
 
+/**
+ * Midnight Prism Glass — Ultra-clean, luminous dark iOS 26 Liquid Glass palette
+ * with vibrant aurora reflections and razor-sharp crystal edges.
+ */
 val DarkDrstColors = DrstColors(
-    bg = Color(0xFF050D1A),
-    surface = Color(0x88142C4F),
-    surface2 = Color(0x701B3863),
-    ink = Color(0xFFF5F7FB),
-    muted = Color(0xFFA7BCD6),
-    line = Color(0x47FFFFFF),
-    band = Color(0xFF071428),
-    band2 = Color(0xFF15345E),
-    onBand = Color(0xFFF7F9FC),
-    onBandMuted = Color(0xFFB3C7E0),
-    gold = Color(0xFFE6C382),
-    goldInk = Color(0xFFEFD199),
-    track = Color(0x38FFFFFF),
-    ok = Color(0xFF3CD993),
-    okBg = Color(0x8F124032),
-    okInk = Color(0xFF9CF4C7),
-    warn = Color(0xFFF7C948),
-    warnBg = Color(0x8F423615),
-    warnInk = Color(0xFFFBE18F),
-    badBg = Color(0x9E572419),
-    badInk = Color(0xFFFFB294),
-    // iOS 26 Liquid Glass Dark (deep sapphire crystal + high-clarity specular rim)
-    glassFill = Color(0x7A163159),
-    glassFillStrong = Color(0xB8142E54),
-    glassBorderTop = Color(0x75FFFFFF),
-    glassBorderBottom = Color(0x337DB4FF),
-    glassHighlight = Color(0x36FFFFFF),
-    bgGradTop = Color(0xFF040B17),
-    bgGradMid = Color(0xFF091D39),
-    bgGradBottom = Color(0xFF051022),
-    orbPrimary = Color(0x593B82F6),
-    orbGold = Color(0x3DE0B76A),
-    orbAccent = Color(0x4714B8A6),
+    bg = Color(0xFF070916),
+    surface = Color(0x88151C38),
+    surface2 = Color(0x6E1E284D),
+    ink = Color(0xFFF8FAFF),
+    muted = Color(0xFF9EB0D0),
+    line = Color(0x3DFFFFFF),
+    band = Color(0xFF131938),
+    band2 = Color(0xFF283470),
+    onBand = Color(0xFFFAFBFD),
+    onBandMuted = Color(0xFFC2D0EE),
+    gold = Color(0xFFFFB84D),
+    goldInk = Color(0xFFFFCB77),
+    track = Color(0x2EFFFFFF),
+    ok = Color(0xFF2EE6A6),
+    okBg = Color(0x59104A3B),
+    okInk = Color(0xFF7FFFD0),
+    warn = Color(0xFFFBBF24),
+    warnBg = Color(0x594A3512),
+    warnInk = Color(0xFFFDE68A),
+    badBg = Color(0x6E5B1A2B),
+    badInk = Color(0xFFFFA8B8),
+    // Ultra-clear frosted dark glass with bright specular rim
+    glassFill = Color(0x21FFFFFF),
+    glassFillStrong = Color(0x36FFFFFF),
+    glassBorderTop = Color(0x7AFFFFFF),
+    glassBorderBottom = Color(0x297DD3FC),
+    glassHighlight = Color(0x26FFFFFF),
+    bgGradTop = Color(0xFF060814),
+    bgGradMid = Color(0xFF0D112B),
+    bgGradBottom = Color(0xFF061322),
+    orbPrimary = Color(0x6638BDF8),
+    orbGold = Color(0x4DFB923C),
+    orbAccent = Color(0x5E818CF8),
+    prismCyan = Color(0xFF38BDF8),
+    prismViolet = Color(0xFFA78BFA),
+    prismCoral = Color(0xFFFF7A90),
     isDark = true
 )
 
 val LocalDrstColors = staticCompositionLocalOf { LightDrstColors }
 
 fun categoryColor(category: String): Color = when (category) {
-    "Study" -> Color(0xFF3B82F6)
-    "Revision" -> Color(0xFF8B5CF6)
-    "Practice" -> Color(0xFF14B8A6)
+    "Study" -> Color(0xFF38BDF8)
+    "Revision" -> Color(0xFFA78BFA)
+    "Practice" -> Color(0xFF2EE6A6)
     "Classes" -> Color(0xFF6366F1)
-    "Morning" -> Color(0xFFF59E0B)
-    "Fitness" -> Color(0xFF22C55E)
-    "Meals" -> Color(0xFFF97316)
-    "Break" -> Color(0xFF06B6D4)
-    "Reading" -> Color(0xFFA855F7)
-    "Planning" -> Color(0xFFC59B52)
-    "Personal" -> Color(0xFFEC4899)
-    "Sleep" -> Color(0xFF64748B)
-    else -> Color(0xFF64748B)
+    "Morning" -> Color(0xFFFFB84D)
+    "Fitness" -> Color(0xFF34D399)
+    "Meals" -> Color(0xFFFB923C)
+    "Break" -> Color(0xFF22D3EE)
+    "Reading" -> Color(0xFFC084FC)
+    "Planning" -> Color(0xFFF472B6)
+    "Personal" -> Color(0xFFFF7A90)
+    "Sleep" -> Color(0xFF818CF8)
+    else -> Color(0xFF94A3B8)
 }

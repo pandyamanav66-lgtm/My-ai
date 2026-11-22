@@ -1,10 +1,17 @@
 package com.example.ui.components
 
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -37,6 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
@@ -66,73 +75,122 @@ import com.example.data.AppTab
 import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LocalDrstColors
 import com.example.ui.theme.SpaceGroteskFontFamily
+import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * High-performance iOS 26 Liquid Glass ambient mesh backdrop.
- * Pure GPU radial light pools behind translucent glass surfaces — zero RenderEffect blur jank,
- * locked at 60fps across all Android devices.
+ * Helper applying hardware-accelerated RenderEffect blur on Android 12+ (API 31+)
+ * while remaining a zero-crash no-op on API 24-30.
+ */
+fun Modifier.backdropBlurIfSupported(radius: Dp): Modifier =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && radius > 0.dp) {
+        this.blur(radius = radius, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+    } else {
+        this
+    }
+
+/**
+ * Living Prism iOS 26 Liquid Glass ambient backdrop.
+ * Combines drifting GPU aurora orbs with real RenderEffect Gaussian blur on Android 12+
+ * so translucent frosted glass cards glow organically over the diffused canvas.
  */
 @Composable
 fun LiquidGlassBackdrop(
     modifier: Modifier = Modifier,
+    translucentOverlay: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val c = LocalDrstColors.current
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(c.bgGradTop, c.bgGradMid, c.bgGradBottom)
+    val infinite = rememberInfiniteTransition(label = "aurora_drift")
+    val phase by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = (2.0 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "aurora_phase"
+    )
+
+    Box(modifier = modifier.fillMaxSize()) {
+        // Real blurred aurora layer (separated from foreground content so text stays razor-sharp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .backdropBlurIfSupported(if (translucentOverlay) 26.dp else 44.dp)
+                .drawBehind {
+                    val baseAlpha = if (translucentOverlay) {
+                        if (c.isDark) 0.72f else 0.78f
+                    } else 1f
+
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                c.bgGradTop.copy(alpha = baseAlpha),
+                                c.bgGradMid.copy(alpha = baseAlpha),
+                                c.bgGradBottom.copy(alpha = baseAlpha)
+                            )
+                        )
                     )
-                )
-                val w = size.width
-                val h = size.height
-                // Top-left luminous sapphire/ice light pool
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(c.orbPrimary, Color.Transparent),
-                        center = Offset(w * 0.12f, h * 0.14f),
-                        radius = w * 0.78f
-                    ),
-                    radius = w * 0.78f,
-                    center = Offset(w * 0.12f, h * 0.14f)
-                )
-                // Right-mid warm champagne glass refraction orb
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(c.orbGold, Color.Transparent),
-                        center = Offset(w * 0.90f, h * 0.36f),
-                        radius = w * 0.72f
-                    ),
-                    radius = w * 0.72f,
-                    center = Offset(w * 0.90f, h * 0.36f)
-                )
-                // Bottom-left aurora teal glass glow
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(c.orbAccent, Color.Transparent),
-                        center = Offset(w * 0.22f, h * 0.78f),
-                        radius = w * 0.74f
-                    ),
-                    radius = w * 0.74f,
-                    center = Offset(w * 0.22f, h * 0.78f)
-                )
-                // Bottom-right soft cobalt glow behind floating dock
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(c.orbPrimary.copy(alpha = c.orbPrimary.alpha * 0.75f), Color.Transparent),
-                        center = Offset(w * 0.85f, h * 0.90f),
-                        radius = w * 0.58f
-                    ),
-                    radius = w * 0.58f,
-                    center = Offset(w * 0.85f, h * 0.90f)
-                )
-            }
-    ) {
+                    val w = size.width
+                    val h = size.height
+                    val dx1 = cos(phase) * w * 0.06f
+                    val dy1 = sin(phase) * h * 0.03f
+                    val dx2 = sin(phase * 0.8f) * w * 0.07f
+                    val dy2 = cos(phase * 0.8f) * h * 0.04f
+
+                    // Top-left luminous electric sky-cyan aurora orb
+                    val c1 = Offset(w * 0.14f + dx1, h * 0.12f + dy1)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(c.orbPrimary, Color.Transparent),
+                            center = c1,
+                            radius = w * 0.82f
+                        ),
+                        radius = w * 0.82f,
+                        center = c1
+                    )
+
+                    // Right-upper vibrant prism violet orb
+                    val c2 = Offset(w * 0.88f - dx2, h * 0.28f + dy2)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(c.orbAccent, Color.Transparent),
+                            center = c2,
+                            radius = w * 0.78f
+                        ),
+                        radius = w * 0.78f,
+                        center = c2
+                    )
+
+                    // Mid-left warm solar amber-coral refraction orb
+                    val c3 = Offset(w * 0.16f - dx1, h * 0.66f - dy2)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(c.orbGold, Color.Transparent),
+                            center = c3,
+                            radius = w * 0.74f
+                        ),
+                        radius = w * 0.74f,
+                        center = c3
+                    )
+
+                    // Bottom-right mint-cyan glow behind floating Liquid Glass dock
+                    val c4 = Offset(w * 0.82f + dx2, h * 0.88f - dy1)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(c.ok.copy(alpha = if (c.isDark) 0.26f else 0.22f), Color.Transparent),
+                            center = c4,
+                            radius = w * 0.66f
+                        ),
+                        radius = w * 0.66f,
+                        center = c4
+                    )
+                }
+        )
+
         content()
     }
 }
@@ -143,16 +201,17 @@ fun BrandLogoMark(
     size: Dp = 38.dp,
     arcProgress: Float = 1f,
     checkProgress: Float = 1f,
-    arcColor: Color = LocalDrstColors.current.gold,
-    checkColor: Color = LocalDrstColors.current.onBand
+    arcColor: Color = LocalDrstColors.current.prismCyan,
+    checkColor: Color = LocalDrstColors.current.ink
 ) {
+    val c = LocalDrstColors.current
     Canvas(modifier = modifier.size(size)) {
-        val strokeW = this.size.minDimension * 0.11f
+        val strokeW = this.size.minDimension * 0.12f
         val pad = strokeW * 0.8f
         val arcSize = Size(this.size.width - pad * 2, this.size.height - pad * 2)
 
         drawArc(
-            color = arcColor.copy(alpha = 0.24f),
+            color = arcColor.copy(alpha = 0.22f),
             startAngle = -90f,
             sweepAngle = 360f,
             useCenter = false,
@@ -162,9 +221,11 @@ fun BrandLogoMark(
         )
 
         drawArc(
-            color = arcColor,
+            brush = Brush.sweepGradient(
+                listOf(arcColor, c.prismViolet, c.gold, arcColor)
+            ),
             startAngle = -90f,
-            sweepAngle = 315f * arcProgress.coerceIn(0f, 1f),
+            sweepAngle = 320f * arcProgress.coerceIn(0f, 1f),
             useCenter = false,
             topLeft = Offset(pad, pad),
             size = arcSize,
@@ -191,10 +252,10 @@ fun BrandLogoMark(
 }
 
 /**
- * Authentic iPhone iOS 26 Liquid Glass Card:
- * - Layered translucent frosted fill
- * - Diagonal specular top-left light reflection sheen
- * - Razor-crisp top glass specular rim + prismatic directional border
+ * Prism iOS 26 Liquid Glass Card:
+ * - Minimal ultra-clear frosted glass surface with super-rounded 26dp corners
+ * - Soft diagonal top-left crystal light reflection sheen
+ * - Razor-crisp top specular reflection arc + prismatic directional glass border
  * Zero elevation shadows on scrolling items keeps LazyColumn locked at 60fps.
  */
 @Composable
@@ -204,12 +265,12 @@ fun DrstCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = LocalDrstColors.current
-    val shape = RoundedCornerShape(24.dp)
-    val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom, c.isDark) {
+    val shape = RoundedCornerShape(26.dp)
+    val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom, c.prismViolet, c.isDark) {
         Brush.linearGradient(
             colors = listOf(
                 c.glassBorderTop,
-                if (c.isDark) Color(0x28FFFFFF) else Color(0x8CFFFFFF),
+                if (c.isDark) c.prismCyan.copy(alpha = 0.24f) else Color(0xB3FFFFFF),
                 c.glassBorderBottom
             )
         )
@@ -219,60 +280,95 @@ fun DrstCard(
             colors = listOf(
                 c.glassHighlight,
                 c.glassFill,
-                if (c.isDark) c.glassFill.copy(alpha = 0.85f) else c.glassFill
+                if (c.isDark) Color(0x14FFFFFF) else c.glassFill.copy(alpha = 0.90f)
             )
         )
     }
-    val topSpecularColor = if (c.isDark) Color(0x4DFFFFFF) else Color(0xCCFFFFFF)
+    val topSpecularColor = if (c.isDark) Color(0x59FFFFFF) else Color(0xE6FFFFFF)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(c.glassFill)
+            .background(if (c.isDark) Color(0x520B1228) else Color(0x78FFFFFF))
             .background(glassFillBrush)
             .drawWithContent {
                 drawContent()
-                // Crisp inner top specular glass reflection arc
                 val inset = 1.dp.toPx()
                 drawRoundRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(topSpecularColor, Color.Transparent),
                         startY = 0f,
-                        endY = 26.dp.toPx()
+                        endY = 30.dp.toPx()
                     ),
                     topLeft = Offset(inset, inset),
-                    size = Size(size.width - inset * 2f, 26.dp.toPx().coerceAtMost(size.height)),
-                    cornerRadius = CornerRadius(23.dp.toPx(), 23.dp.toPx()),
-                    style = Stroke(width = 1.dp.toPx())
+                    size = Size(size.width - inset * 2f, 30.dp.toPx().coerceAtMost(size.height)),
+                    cornerRadius = CornerRadius(25.dp.toPx(), 25.dp.toPx()),
+                    style = Stroke(width = 1.15.dp.toPx())
                 )
             }
-            .border(width = 1.1.dp, brush = rimBrush, shape = shape)
+            .border(width = 1.15.dp, brush = rimBrush, shape = shape)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        // Subtle blurred top-left glass refraction sheen behind crisp card content
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .backdropBlurIfSupported(14.dp)
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                if (c.isDark) c.prismCyan.copy(alpha = 0.10f) else Color(0x59FFFFFF),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.12f, 0f),
+                            radius = size.width * 0.55f
+                        ),
+                        radius = size.width * 0.55f,
+                        center = Offset(size.width * 0.12f, 0f)
+                    )
+                }
+        )
+        Column(modifier = Modifier.padding(18.dp)) {
             if (title != null) {
-                Text(
-                    text = title.uppercase(),
-                    style = TextStyle(
-                        fontFamily = InterFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp,
-                        letterSpacing = 1.sp,
-                        color = c.muted
-                    ),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                     modifier = Modifier.padding(bottom = 12.dp)
-                )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(listOf(c.prismCyan, c.prismViolet))
+                            )
+                    )
+                    Text(
+                        text = title.uppercase(),
+                        style = TextStyle(
+                            fontFamily = InterFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.1.sp,
+                            color = c.muted
+                        )
+                    )
+                }
             }
             content()
         }
     }
 }
 
+/**
+ * Luminous Prism Gradient Completion Ring with glowing progress arc.
+ */
 @Composable
 fun CompletionRing(
     percent: Int,
     modifier: Modifier = Modifier,
-    size: Dp = 132.dp,
+    size: Dp = 128.dp,
     strokeWidth: Dp = 11.dp,
     label: String = "DONE",
     ringColor: Color = LocalDrstColors.current.ok
@@ -280,7 +376,10 @@ fun CompletionRing(
     val c = LocalDrstColors.current
     val animatedSweep by animateFloatAsState(
         targetValue = (percent.coerceIn(0, 100) / 100f) * 360f,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "ring_sweep"
     )
     Box(
@@ -289,8 +388,10 @@ fun CompletionRing(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val sw = strokeWidth.toPx()
-            val inset = sw / 2f
-            val arcSize = Size(this.size.width - sw, this.size.height - sw)
+            val inset = sw / 2f + 2.dp.toPx()
+            val arcSize = Size(this.size.width - inset * 2f, this.size.height - inset * 2f)
+
+            // Frosted glass track ring
             drawArc(
                 color = c.track,
                 startAngle = -90f,
@@ -300,8 +401,25 @@ fun CompletionRing(
                 size = arcSize,
                 style = Stroke(width = sw, cap = StrokeCap.Round)
             )
+
+            // Soft luminous halo behind progress arc
+            if (animatedSweep > 1f) {
+                drawArc(
+                    color = ringColor.copy(alpha = 0.24f),
+                    startAngle = -90f,
+                    sweepAngle = animatedSweep,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = sw + 5.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            // Crisp prism gradient progress arc
             drawArc(
-                color = ringColor,
+                brush = Brush.sweepGradient(
+                    colors = listOf(c.prismCyan, ringColor, c.gold, c.prismCyan)
+                ),
                 startAngle = -90f,
                 sweepAngle = animatedSweep,
                 useCenter = false,
@@ -316,7 +434,7 @@ fun CompletionRing(
                 style = TextStyle(
                     fontFamily = SpaceGroteskFontFamily,
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (size >= 160.dp) 38.sp else 28.sp,
+                    fontSize = if (size >= 160.dp) 38.sp else 27.sp,
                     color = c.ink,
                     fontFeatureSettings = "tnum"
                 )
@@ -325,9 +443,9 @@ fun CompletionRing(
                 text = label,
                 style = TextStyle(
                     fontFamily = InterFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 10.sp,
-                    letterSpacing = 0.9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    letterSpacing = 1.sp,
                     color = c.muted
                 )
             )
@@ -335,6 +453,9 @@ fun CompletionRing(
     }
 }
 
+/**
+ * Playful, bouncy squircle Liquid Glass checkbox with juicy spring pop on check.
+ */
 @Composable
 fun AnimatedTaskCheckbox(
     checked: Boolean,
@@ -349,10 +470,20 @@ fun AnimatedTaskCheckbox(
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "check_draw"
     )
+    val fillColor by animateColorAsState(
+        targetValue = if (checked) c.ok else if (c.isDark) Color(0x1CFFFFFF) else Color(0xCCFFFFFF),
+        animationSpec = tween(220),
+        label = "cb_fill"
+    )
+    val ringColor by animateColorAsState(
+        targetValue = if (checked) c.ok else borderColor.copy(alpha = 0.72f),
+        animationSpec = tween(220),
+        label = "cb_ring"
+    )
 
     LaunchedEffect(checked) {
         if (checked) {
-            popScale.animateTo(1.18f, animationSpec = tween(100))
+            popScale.animateTo(1.24f, animationSpec = tween(95))
             popScale.animateTo(1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
         }
     }
@@ -366,19 +497,19 @@ fun AnimatedTaskCheckbox(
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(32.dp)
                 .scale(popScale.value)
                 .clip(RoundedCornerShape(11.dp))
-                .background(if (checked) c.ok else c.glassFillStrong)
+                .background(fillColor)
                 .border(
-                    width = 2.dp,
-                    color = if (checked) c.ok else borderColor,
+                    width = if (checked) 1.5.dp else 1.8.dp,
+                    color = ringColor,
                     shape = RoundedCornerShape(11.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
             if (checkDraw > 0.01f) {
-                Canvas(modifier = Modifier.size(20.dp)) {
+                Canvas(modifier = Modifier.size(18.dp)) {
                     val full = Path().apply {
                         moveTo(size.width * 0.18f, size.height * 0.52f)
                         lineTo(size.width * 0.42f, size.height * 0.76f)
@@ -390,7 +521,7 @@ fun AnimatedTaskCheckbox(
                     pm.getSegment(0f, pm.length * checkDraw, seg, true)
                     drawPath(
                         path = seg,
-                        color = Color.White,
+                        color = if (c.isDark) Color(0xFF041C14) else Color.White,
                         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                     )
                 }
@@ -400,7 +531,7 @@ fun AnimatedTaskCheckbox(
 }
 
 /**
- * Authentic iPhone iOS 26 Floating Liquid Glass Dock (strictly 5 navigation tabs).
+ * Minimal, Luminous iOS 26 Floating Liquid Glass Capsule Dock (strictly 5 navigation tabs).
  */
 @Composable
 fun FloatingTabBar(
@@ -409,26 +540,26 @@ fun FloatingTabBar(
     modifier: Modifier = Modifier
 ) {
     val c = LocalDrstColors.current
-    val pillShape = RoundedCornerShape(32.dp)
+    val pillShape = RoundedCornerShape(34.dp)
     val dockFill = remember(c.isDark) {
         if (c.isDark) {
             Brush.verticalGradient(
-                colors = listOf(Color(0xCC163259), Color(0xE608162C))
+                colors = listOf(Color(0xCC1B2246), Color(0xE80A0F24))
             )
         } else {
             Brush.verticalGradient(
-                colors = listOf(Color(0xEBFFFFFF), Color(0xD6EBF2FC))
+                colors = listOf(Color(0xF2FFFFFF), Color(0xDDEEF4FF))
             )
         }
     }
-    val rimBrush = remember(c.isDark, c.gold) {
+    val rimBrush = remember(c.isDark, c.prismCyan, c.prismViolet) {
         if (c.isDark) {
             Brush.linearGradient(
-                colors = listOf(Color(0x99FFFFFF), Color(0x4593C5FD), c.gold.copy(alpha = 0.45f))
+                colors = listOf(Color(0x9EFFFFFF), c.prismCyan.copy(alpha = 0.50f), c.prismViolet.copy(alpha = 0.45f))
             )
         } else {
             Brush.linearGradient(
-                colors = listOf(Color(0xFFFFFFFF), Color(0x88BFD7F5), Color(0x80FFFFFF))
+                colors = listOf(Color(0xFFFFFFFF), c.prismCyan.copy(alpha = 0.35f), Color(0xB3FFFFFF))
             )
         }
     }
@@ -437,12 +568,12 @@ fun FloatingTabBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .widthIn(max = 520.dp)
+                .widthIn(max = 500.dp)
                 .fillMaxWidth()
                 .clip(pillShape)
                 .background(dockFill)
@@ -458,7 +589,7 @@ fun FloatingTabBar(
                 AppTab.entries.forEach { tab ->
                     val active = tab == selectedTab
                     val iconScale by animateFloatAsState(
-                        targetValue = if (active) 1.14f else 1f,
+                        targetValue = if (active) 1.16f else 1f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
                             stiffness = Spring.StiffnessMedium
@@ -466,7 +597,7 @@ fun FloatingTabBar(
                         label = "tab_scale_${tab.name}"
                     )
                     val iconLift by animateFloatAsState(
-                        targetValue = if (active) -2f else 0f,
+                        targetValue = if (active) -2.5f else 0f,
                         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
                         label = "tab_lift_${tab.name}"
                     )
@@ -479,39 +610,39 @@ fun FloatingTabBar(
                         AppTab.AI_COACH -> if (active) Icons.Rounded.AutoAwesome else Icons.Outlined.AutoAwesome
                     }
 
-                    // Luminous iOS 26 Liquid Glass droplet behind the active tab
+                    // Playful prism droplet behind the active tab
                     val activeModifier = if (active) {
                         val dropletBrush = if (c.isDark) {
-                            Brush.verticalGradient(
-                                listOf(Color(0x45FFFFFF), c.gold.copy(alpha = 0.24f))
+                            Brush.linearGradient(
+                                listOf(c.prismCyan.copy(alpha = 0.30f), c.prismViolet.copy(alpha = 0.28f))
                             )
                         } else {
-                            Brush.verticalGradient(
-                                listOf(c.band.copy(alpha = 0.14f), c.gold.copy(alpha = 0.20f))
+                            Brush.linearGradient(
+                                listOf(c.prismCyan.copy(alpha = 0.18f), c.prismViolet.copy(alpha = 0.16f))
                             )
                         }
                         val dropletRim = if (c.isDark) {
-                            Brush.verticalGradient(listOf(Color(0x99FFFFFF), c.gold.copy(alpha = 0.65f)))
+                            Brush.verticalGradient(listOf(Color(0xA6FFFFFF), c.prismCyan.copy(alpha = 0.65f)))
                         } else {
-                            Brush.verticalGradient(listOf(Color(0xFFFFFFFF), c.gold.copy(alpha = 0.72f)))
+                            Brush.verticalGradient(listOf(Color(0xFFFFFFFF), c.prismCyan.copy(alpha = 0.55f)))
                         }
                         Modifier
                             .background(dropletBrush)
-                            .border(1.1.dp, dropletRim, RoundedCornerShape(24.dp))
+                            .border(1.1.dp, dropletRim, RoundedCornerShape(26.dp))
                     } else {
                         Modifier
                     }
 
-                    val activeIconTint = if (c.isDark) c.gold else c.band
-                    val inactiveIconTint = if (c.isDark) c.onBandMuted else c.muted
-                    val activeLabelColor = if (c.isDark) c.onBand else c.band
-                    val inactiveLabelColor = if (c.isDark) c.onBandMuted else c.muted
+                    val activeIconTint = if (c.isDark) c.prismCyan else c.band
+                    val inactiveIconTint = if (c.isDark) c.muted else c.muted
+                    val activeLabelColor = if (c.isDark) c.ink else c.band
+                    val inactiveLabelColor = c.muted
 
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 50.dp)
-                            .clip(RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(26.dp))
                             .then(activeModifier)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
@@ -573,15 +704,15 @@ fun ConfettiOverlay(
         if (burstId == 0) emptyList()
         else {
             val palette = listOf(
-                Color(0xFFC59B52),
-                Color(0xFFDFBC7E),
-                Color(0xFF2FA36B),
-                Color(0xFFE0A800),
-                Color(0xFF3B82F6),
-                Color(0xFFF4EDE0)
+                Color(0xFF38BDF8),
+                Color(0xFFA78BFA),
+                Color(0xFF2EE6A6),
+                Color(0xFFFFB84D),
+                Color(0xFFFF7A90),
+                Color(0xFFF8FAFF)
             )
             val rnd = Random(burstId * 9973)
-            List(52) {
+            List(56) {
                 val theta = rnd.nextFloat() * Math.PI.toFloat() * 2f
                 val speed = 0.25f + rnd.nextFloat() * 0.65f
                 ConfettiParticle(
@@ -638,9 +769,12 @@ fun ToastBanner(
     ) {
         Surface(
             shape = RoundedCornerShape(99.dp),
-            color = Color(0xEB0B1D38),
-            border = BorderStroke(1.1.dp, Brush.linearGradient(listOf(Color(0x99FFFFFF), c.gold.copy(alpha = 0.85f)))),
-            shadowElevation = 8.dp
+            color = if (c.isDark) Color(0xEB101733) else Color(0xF2151E40),
+            border = BorderStroke(
+                1.1.dp,
+                Brush.linearGradient(listOf(Color(0xB3FFFFFF), c.prismCyan.copy(alpha = 0.85f)))
+            ),
+            shadowElevation = 10.dp
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -651,15 +785,15 @@ fun ToastBanner(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(c.gold)
+                        .background(Brush.linearGradient(listOf(c.prismCyan, c.ok)))
                 )
                 Text(
                     text = message.orEmpty(),
                     style = TextStyle(
                         fontFamily = InterFontFamily,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
-                        color = c.onBand
+                        color = Color(0xFFF8FAFF)
                     )
                 )
             }

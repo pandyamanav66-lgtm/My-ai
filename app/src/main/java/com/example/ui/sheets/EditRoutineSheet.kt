@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -51,39 +53,44 @@ fun EditRoutineSheet(
         }
     }
 
-    LiquidGlassBackdrop {
+    LiquidGlassBackdrop(translucentOverlay = true) {
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-            // Top bar
-            Surface(color = c.band.copy(alpha = 0.90f), modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "Edit Routine",
-                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.onBand)
-                        )
-                        Text(
-                            text = "${draftTasks.size} daily tasks",
-                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.onBandMuted)
-                        )
+            // Minimal Floating Liquid Glass Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Edit Routine",
+                        style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = c.ink)
+                    )
+                    Text(
+                        text = "${draftTasks.size} daily tasks",
+                        style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { onSaveRoutine(draftTasks) },
+                        colors = ButtonDefaults.buttonColors(containerColor = c.prismCyan, contentColor = Color(0xFF061322)),
+                        shape = RoundedCornerShape(99.dp),
+                        modifier = Modifier.testTag("save_routine_button")
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { onSaveRoutine(draftTasks) },
-                            colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.testTag("save_routine_button")
-                        ) {
-                            Text("Save", fontWeight = FontWeight.Bold)
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Close routine editor", tint = c.onBand)
-                        }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(c.glassFill)
+                            .border(1.dp, c.glassBorderTop.copy(alpha = 0.55f), CircleShape)
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close routine editor", tint = c.ink)
                     }
                 }
             }

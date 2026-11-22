@@ -76,7 +76,7 @@ fun WeeklyScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 114.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 1. Week Navigation
@@ -190,10 +190,14 @@ fun WeeklyScreen(
                         val pctFrac = (dayPcts[i] / 100f).coerceIn(0f, 1f)
                         val barH = (h * pctFrac).coerceAtLeast(4.dp.toPx())
                         drawRoundRect(
-                            color = if (dayPcts[i] >= 75) c.ok.copy(alpha = 0.78f) else c.warn.copy(alpha = 0.75f),
+                            brush = if (dayPcts[i] >= 75) {
+                                Brush.verticalGradient(listOf(c.prismCyan, c.ok))
+                            } else {
+                                Brush.verticalGradient(listOf(c.prismViolet.copy(alpha = 0.85f), c.gold.copy(alpha = 0.80f)))
+                            },
                             topLeft = Offset(cx - barW / 2f, h - barH),
                             size = Size(barW, barH),
-                            cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+                            cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
                         )
 
                         val studyFrac = (dayStudyHrs[i] / maxStudy).toFloat().coerceIn(0f, 1f)

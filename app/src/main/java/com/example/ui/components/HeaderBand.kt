@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +35,11 @@ import com.example.ui.theme.SpaceGroteskFontFamily
 import java.util.Calendar
 import java.util.Locale
 
+/**
+ * Ultra-clean, minimal floating Prism Liquid Glass Header.
+ * No heavy dark solid slab — floats directly over the living aurora mesh with
+ * compact greeting, streak flame pill, sleek date capsule, Edit & Profile glass buttons.
+ */
 @Composable
 fun HeaderBand(
     profile: UserProfile,
@@ -51,319 +57,288 @@ fun HeaderBand(
     val context = LocalContext.current
     val isToday = selectedDate == todayKey()
 
-    // iOS 26 frosted translucent sapphire Liquid Glass top bar
-    val headerGradient = remember(c.band, c.band2) {
-        Brush.verticalGradient(
-            colors = listOf(
-                c.band.copy(alpha = 0.90f),
-                c.band2.copy(alpha = 0.78f)
-            )
-        )
+    val glassFill = remember(c.isDark) {
+        if (c.isDark) {
+            Brush.verticalGradient(listOf(Color(0x2EFFFFFF), Color(0x14FFFFFF)))
+        } else {
+            Brush.verticalGradient(listOf(Color(0xE6FFFFFF), Color(0xB8F3F8FF)))
+        }
     }
-    val bottomSpecularRim = remember {
-        Brush.horizontalGradient(
-            colors = listOf(Color(0x38FFFFFF), Color(0x88FFFFFF), Color(0x38FFFFFF))
-        )
+    val glassRim = remember(c.isDark, c.glassBorderTop, c.glassBorderBottom) {
+        Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom))
     }
-    val glassCapsuleFill = remember {
-        Brush.verticalGradient(
-            colors = listOf(Color(0x36FFFFFF), Color(0x18FFFFFF))
-        )
-    }
-    val glassCapsuleRim = remember {
-        Brush.verticalGradient(
-            colors = listOf(Color(0x78FFFFFF), Color(0x28FFFFFF))
-        )
-    }
-    val headerShape = RoundedCornerShape(bottomStart = 30.dp, bottomEnd = 30.dp)
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(headerShape)
-            .background(headerGradient)
-            .border(
-                width = 1.1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(Color.Transparent, Color(0x26FFFFFF), Color(0x6EFFFFFF))
-                ),
-                shape = headerShape
-            )
+            .statusBarsPadding()
+            .widthIn(max = 960.dp)
+            .padding(horizontal = 16.dp)
+            .padding(top = 8.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .widthIn(max = 960.dp)
-                .align(Alignment.Center)
-                .padding(horizontal = 16.dp)
-                .padding(top = 10.dp, bottom = 14.dp)
+        // Row 1: Minimal Brand Mark + Greeting/Title + Streak Flame + Edit + Profile Avatar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Clean, uncluttered top bar: Logo + Full Title + Edit Pencil + Profile Avatar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(glassFill)
+                    .border(1.1.dp, glassRim, CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                BrandLogoMark(size = 38.dp)
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${greetingForTimeOfDay()}, ${profile.name}",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 11.sp,
-                            color = c.onBandMuted
-                        )
-                    )
-                    Text(
-                        text = "Daily Routine & Study Tracker",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            lineHeight = 20.sp,
-                            letterSpacing = (-0.2).sp,
-                            color = c.onBand
-                        )
-                    )
-                    Text(
-                        text = "by Manav Pandya",
-                        style = TextStyle(
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.Normal,
-                            fontSize = 10.sp,
-                            color = c.gold
-                        )
-                    )
-                }
-
-                // Edit Routine glass button (48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(glassCapsuleFill)
-                        .border(1.dp, glassCapsuleRim, CircleShape)
-                        .clickable(onClick = onOpenEditRoutine)
-                        .testTag("edit_routine_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Edit,
-                        contentDescription = "Edit routine",
-                        tint = c.onBand,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
-                // Initials Avatar glass button (opens Profile sheet)
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(c.gold.copy(alpha = 0.34f), c.gold.copy(alpha = 0.16f))
-                            )
-                        )
-                        .border(
-                            1.1.dp,
-                            Brush.verticalGradient(listOf(Color(0xA6FFFFFF), c.gold.copy(alpha = 0.85f))),
-                            CircleShape
-                        )
-                        .clickable(onClick = onOpenProfile)
-                        .testTag("profile_avatar_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = profile.initials,
-                        style = TextStyle(
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = c.gold
-                        )
-                    )
-                }
+                BrandLogoMark(
+                    size = 26.dp,
+                    arcColor = c.prismCyan,
+                    checkColor = c.ink
+                )
             }
 
-            Spacer(Modifier.height(12.dp))
-
-            // Liquid Glass Date Navigator Pill Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(glassCapsuleFill)
-                        .border(1.dp, glassCapsuleRim, CircleShape)
-                        .clickable(onClick = onPrevDay)
-                        .testTag("prev_day_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                        contentDescription = "Previous day",
-                        tint = c.onBand
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${greetingForTimeOfDay()}, ${profile.name}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 11.sp,
+                        color = c.muted
                     )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(glassCapsuleFill)
-                        .border(1.dp, glassCapsuleRim, RoundedCornerShape(99.dp))
-                        .clickable {
-                            val cal = keyToCalendar(selectedDate)
-                            DatePickerDialog(
-                                context,
-                                { _, y, m, d ->
-                                    val key = String.format(Locale.US, "%04d-%02d-%02d", y, m + 1, d)
-                                    onPickDate(key)
-                                },
-                                cal.get(Calendar.YEAR),
-                                cal.get(Calendar.MONTH),
-                                cal.get(Calendar.DAY_OF_MONTH)
-                            ).show()
-                        }
-                        .testTag("date_picker_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = formatFriendlyDate(selectedDate),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = c.onBand,
-                            fontFeatureSettings = "tnum"
-                        )
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(glassCapsuleFill)
-                        .border(1.dp, glassCapsuleRim, CircleShape)
-                        .clickable(onClick = onNextDay)
-                        .testTag("next_day_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription = "Next day",
-                        tint = c.onBand
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(
-                            if (isToday) {
-                                Brush.verticalGradient(listOf(c.gold.copy(alpha = 0.50f), c.gold.copy(alpha = 0.34f)))
-                            } else {
-                                Brush.verticalGradient(listOf(c.gold, c.gold.copy(alpha = 0.85f)))
-                            }
-                        )
-                        .border(1.dp, Color(0x88FFFFFF), RoundedCornerShape(99.dp))
-                        .clickable(enabled = !isToday, onClick = onJumpToday)
-                        .padding(horizontal = 14.dp)
-                        .testTag("today_button"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Today",
-                        style = TextStyle(
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = c.band
-                        )
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // Streak pill + Rest day pill
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+                )
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(glassCapsuleFill)
-                        .border(1.dp, glassCapsuleRim, RoundedCornerShape(99.dp))
-                        .padding(horizontal = 11.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(c.gold)
-                    )
                     Text(
-                        text = "$streakDays day${if (streakDays == 1) "" else "s"} streak (75%+)",
+                        text = "Study Tracker",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         style = TextStyle(
-                            fontFamily = InterFontFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 11.sp,
-                            color = c.onBand
+                            fontFamily = SpaceGroteskFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            letterSpacing = (-0.3).sp,
+                            color = c.ink
                         )
                     )
-                }
-
-                if (isRestDay) {
-                    Box(
+                    // Playful compact inline streak flame pill
+                    Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(99.dp))
-                            .background(c.gold.copy(alpha = 0.25f))
-                            .border(1.dp, c.gold, RoundedCornerShape(99.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(c.gold.copy(alpha = 0.22f), c.prismCoral.copy(alpha = 0.18f))
+                                )
+                            )
+                            .border(1.dp, c.gold.copy(alpha = 0.55f), RoundedCornerShape(99.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Rounded.LocalFireDepartment,
+                            contentDescription = "Streak",
+                            tint = c.gold,
+                            modifier = Modifier.size(12.dp)
+                        )
                         Text(
-                            text = "Rest day",
+                            text = "${streakDays}d",
                             style = TextStyle(
-                                fontFamily = InterFontFamily,
-                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = c.gold
+                                color = c.goldInk
                             )
                         )
                     }
+                    if (isRestDay) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(99.dp))
+                                .background(c.prismViolet.copy(alpha = 0.20f))
+                                .border(1.dp, c.prismViolet.copy(alpha = 0.5f), RoundedCornerShape(99.dp))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "Rest",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
+                                    color = c.prismViolet
+                                )
+                            )
+                        }
+                    }
                 }
+            }
+
+            // Minimal Edit Routine glass button
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(glassFill)
+                    .border(1.1.dp, glassRim, CircleShape)
+                    .clickable(onClick = onOpenEditRoutine)
+                    .testTag("edit_routine_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = "Edit routine",
+                    tint = c.ink,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+
+            // Luminous Initials Profile Avatar glass button
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(c.prismCyan.copy(alpha = 0.28f), c.prismViolet.copy(alpha = 0.30f))
+                        )
+                    )
+                    .border(
+                        1.2.dp,
+                        Brush.linearGradient(listOf(c.glassBorderTop, c.prismCyan.copy(alpha = 0.8f))),
+                        CircleShape
+                    )
+                    .clickable(onClick = onOpenProfile)
+                    .testTag("profile_avatar_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = profile.initials,
+                    style = TextStyle(
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = c.ink
+                    )
+                )
             }
         }
 
-        // Subtle luminous specular glint along bottom edge
-        Box(
+        // Row 2: Slim Floating Liquid Glass Date Capsule
+        Row(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.55f)
-                .height(1.dp)
-                .background(bottomSpecularRim)
-        )
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(99.dp))
+                .background(glassFill)
+                .border(1.1.dp, glassRim, RoundedCornerShape(99.dp))
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onPrevDay)
+                    .testTag("prev_day_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                    contentDescription = "Previous day",
+                    tint = c.ink,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .clickable {
+                        val cal = keyToCalendar(selectedDate)
+                        DatePickerDialog(
+                            context,
+                            { _, y, m, d ->
+                                val key = String.format(Locale.US, "%04d-%02d-%02d", y, m + 1, d)
+                                onPickDate(key)
+                            },
+                            cal.get(Calendar.YEAR),
+                            cal.get(Calendar.MONTH),
+                            cal.get(Calendar.DAY_OF_MONTH)
+                        ).show()
+                    }
+                    .testTag("date_picker_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = formatFriendlyDate(selectedDate),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = c.ink,
+                        fontFeatureSettings = "tnum"
+                    )
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onNextDay)
+                    .testTag("next_day_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = "Next day",
+                    tint = c.ink,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(
+                        if (isToday) {
+                            Brush.horizontalGradient(
+                                listOf(c.prismCyan.copy(alpha = 0.22f), c.prismViolet.copy(alpha = 0.20f))
+                            )
+                        } else {
+                            Brush.horizontalGradient(listOf(c.prismCyan, c.prismViolet))
+                        }
+                    )
+                    .border(
+                        1.dp,
+                        if (isToday) c.prismCyan.copy(alpha = 0.45f) else Color(0x99FFFFFF),
+                        RoundedCornerShape(99.dp)
+                    )
+                    .clickable(enabled = !isToday, onClick = onJumpToday)
+                    .padding(horizontal = 13.dp)
+                    .testTag("today_button"),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Today",
+                    style = TextStyle(
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = if (isToday) c.ink else Color.White
+                    )
+                )
+            }
+        }
     }
 }

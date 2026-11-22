@@ -7,13 +7,16 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.*
 import com.example.ui.components.FloatingTabBar
 import com.example.ui.components.HeaderBand
 import com.example.ui.screens.AiCoachScreen
+import com.example.ui.screens.ChecklistScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.MindFocusGameScreen
 import com.example.ui.sheets.ProfileSheet
 import com.example.ui.theme.StudyTrackerTheme
 import com.example.viewmodel.AiCoachUiState
@@ -188,7 +191,7 @@ class ExampleRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithText("Daily Routine & Study Tracker").assertIsDisplayed()
+        composeRule.onNodeWithText("Study Tracker").assertIsDisplayed()
         composeRule.onNodeWithTag("edit_routine_button").assertIsDisplayed()
         composeRule.onNodeWithTag("profile_avatar_button").assertIsDisplayed()
         composeRule.onNodeWithTag("open_game_button").assertDoesNotExist()
@@ -214,7 +217,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun ui_dashboardExposesOrbitPulseGameLauncher() {
+    fun ui_dashboardExposesMindLabGameLauncher() {
         val sampleProfile = UserProfile(name = "Manav Pandya", bestGameScore = 150, bestGameWave = 2)
         var opened = false
         composeRule.setContent {
@@ -227,9 +230,34 @@ class ExampleRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("dashboard_orbit_pulse_card")
+        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("dashboard_mind_game_card")
         composeRule.onNodeWithTag("dashboard_play_game_button").assertIsDisplayed().performClick()
         assertTrue(opened)
+    }
+
+    @Test
+    fun ui_mindFocusGameScreenSwitchesModesAndStarts() {
+        var exited = false
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                MindFocusGameScreen(
+                    bestScore = 120,
+                    bestLevel = 3,
+                    onFinishRun = { _, _ -> },
+                    onExit = { exited = true }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("mind_game_mode_memory").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("mind_game_mode_stroop").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("mind_game_mode_math").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("mind_game_start_button").assertIsDisplayed().performClick()
+
+        composeRule.onNodeWithTag("math_expression").assertIsDisplayed()
+        composeRule.onNodeWithTag("mind_game_score").assertIsDisplayed()
+        composeRule.onNodeWithTag("mind_game_close_button").performClick()
+        assertTrue(exited)
     }
 
     @Test
@@ -361,5 +389,35 @@ class ExampleRobolectricTest {
 
         composeRule.onNodeWithTag("check_updates_button").assertIsDisplayed().performClick()
         assertTrue(checked)
+    }
+
+    @Test
+    fun ui_checklistScreenRendersGoalAndFilterPills() {
+        val sampleProfile = UserProfile(name = "Manav Pandya", dailyStudyGoalHours = 6.0)
+        var goalDelta = 0.0
+        var activeFilter = ChecklistFilter.ALL
+
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                ChecklistScreen(
+                    profile = sampleProfile,
+                    selectedDate = todayKey(),
+                    filter = activeFilter,
+                    onSelectFilter = { activeFilter = it },
+                    onToggleTask = {},
+                    onUpdateNote = { _, _ -> },
+                    onAdjustStudyGoal = { goalDelta += it },
+                    onToggleRestDay = {},
+                    onResetDay = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("study_goal_plus").assertIsDisplayed().performClick()
+        assertEquals(0.5, goalDelta, 0.01)
+
+        composeRule.onNodeWithTag("checklist_list").performScrollToKey("list_header")
+        composeRule.onNodeWithTag("filter_study").assertIsDisplayed().performClick()
+        assertEquals(ChecklistFilter.STUDY, activeFilter)
     }
 }

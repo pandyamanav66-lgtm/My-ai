@@ -70,43 +70,50 @@ fun ProfileSheet(
         }
     }
 
-    LiquidGlassBackdrop {
+    LiquidGlassBackdrop(translucentOverlay = true) {
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-            // Top bar
-            Surface(color = c.band.copy(alpha = 0.94f), modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+            // Minimal Floating Liquid Glass Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(c.prismCyan.copy(alpha = 0.22f))
+                            .border(1.2.dp, c.prismCyan.copy(alpha = 0.7f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = profile.initials,
+                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.ink)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Profile & Updates",
+                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.ink)
+                        )
+                        Text(
+                            text = profile.name,
+                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(c.glassFill)
+                        .border(1.dp, c.glassBorderTop.copy(alpha = 0.55f), CircleShape)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(c.gold.copy(alpha = 0.24f))
-                                .border(1.dp, c.gold, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = profile.initials,
-                                style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.gold)
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "Profile & Backup",
-                                style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 19.sp, color = c.onBand)
-                            )
-                            Text(
-                                text = profile.name,
-                                style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.onBandMuted)
-                            )
-                        }
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Close profile", tint = c.onBand)
-                    }
+                    Icon(Icons.Rounded.Close, contentDescription = "Close profile", tint = c.ink)
                 }
             }
 

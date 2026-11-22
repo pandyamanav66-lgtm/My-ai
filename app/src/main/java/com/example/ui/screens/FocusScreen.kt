@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -38,8 +39,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.data.*
 import com.example.ui.components.DrstCard
+import com.example.ui.components.backdropBlurIfSupported
 import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LocalDrstColors
 import com.example.ui.theme.SpaceGroteskFontFamily
@@ -110,7 +113,7 @@ fun FocusScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 114.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 1. Focus Timer Card
@@ -161,18 +164,18 @@ fun FocusScreen(
 
                 Spacer(Modifier.height(14.dp))
 
-                // Timer Ring
+                // Luminous Prism Timer Ring
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(modifier = Modifier.size(188.dp), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.size(204.dp), contentAlignment = Alignment.Center) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            val sw = 12.dp.toPx()
-                            val inset = sw / 2f
-                            val arcSize = Size(size.width - sw, size.height - sw)
+                            val sw = 13.dp.toPx()
+                            val inset = sw / 2f + 4.dp.toPx()
+                            val arcSize = Size(size.width - inset * 2f, size.height - inset * 2f)
                             drawArc(
                                 color = c.track,
                                 startAngle = -90f,
@@ -182,15 +185,31 @@ fun FocusScreen(
                                 size = arcSize,
                                 style = Stroke(width = sw, cap = StrokeCap.Round)
                             )
-                            drawArc(
-                                color = if (timer.isRunning) c.ok else c.gold,
-                                startAngle = -90f,
-                                sweepAngle = animRing * 360f,
-                                useCenter = false,
-                                topLeft = Offset(inset, inset),
-                                size = arcSize,
-                                style = Stroke(width = sw, cap = StrokeCap.Round)
-                            )
+                            val sweep = (animRing * 360f).coerceAtLeast(if (timer.isRunning) 4f else 0f)
+                            if (sweep > 0.5f) {
+                                // Ambient halo glow
+                                drawArc(
+                                    color = (if (timer.isRunning) c.ok else c.prismCyan).copy(alpha = 0.24f),
+                                    startAngle = -90f,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    topLeft = Offset(inset, inset),
+                                    size = arcSize,
+                                    style = Stroke(width = sw + 6.dp.toPx(), cap = StrokeCap.Round)
+                                )
+                                drawArc(
+                                    brush = Brush.sweepGradient(
+                                        if (timer.isRunning) listOf(c.prismCyan, c.ok, c.gold, c.prismCyan)
+                                        else listOf(c.prismViolet, c.prismCyan, c.gold, c.prismViolet)
+                                    ),
+                                    startAngle = -90f,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    topLeft = Offset(inset, inset),
+                                    size = arcSize,
+                                    style = Stroke(width = sw, cap = StrokeCap.Round)
+                                )
+                            }
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val mm = timer.remainingSeconds / 60
@@ -200,16 +219,29 @@ fun FocusScreen(
                                 style = TextStyle(
                                     fontFamily = SpaceGroteskFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 38.sp,
+                                    fontSize = 42.sp,
+                                    letterSpacing = (-1).sp,
                                     color = c.ink,
                                     fontFeatureSettings = "tnum"
                                 ),
                                 modifier = Modifier.testTag("timer_readout")
                             )
-                            Text(
-                                text = timer.selectedSubject,
-                                style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background((if (timer.isRunning) c.ok else c.prismCyan).copy(alpha = 0.16f))
+                                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = timer.selectedSubject,
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 11.sp,
+                                        color = if (timer.isRunning) c.okInk else c.ink
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -331,9 +363,9 @@ fun FocusScreen(
             }
         }
 
-        // 1.5 Study Break Arcade: Orbit Pulse Launcher Card
-        item(key = "orbit_pulse_card") {
-            DrstCard(title = "Study Break Arcade • Orbit Pulse") {
+        // 1.5 Mind Lab • Study Focus Trainer Card
+        item(key = "mind_lab_card") {
+            DrstCard(title = "Mind Lab • Study Focus Trainer") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -343,19 +375,20 @@ fun FocusScreen(
                         modifier = Modifier
                             .size(50.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(c.band),
+                            .background(Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.22f), c.prismViolet.copy(alpha = 0.26f))))
+                            .border(1.dp, c.prismCyan.copy(alpha = 0.45f), RoundedCornerShape(16.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.SportsEsports,
+                            imageVector = Icons.Rounded.Psychology,
                             contentDescription = null,
-                            tint = c.gold,
-                            modifier = Modifier.size(26.dp)
+                            tint = c.prismCyan,
+                            modifier = Modifier.size(27.dp)
                         )
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Take a 2-Minute Reflex Break",
+                            text = "2-Min Focus & Memory Warm-Up",
                             style = TextStyle(
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
@@ -364,20 +397,20 @@ fun FocusScreen(
                             )
                         )
                         Text(
-                            text = "Best Score: ${profile.bestGameScore} • Wave ${profile.bestGameWave} • Earns Study XP",
+                            text = "Memory Matrix, Stroop & Speed Math • Best ${profile.bestGameScore}",
                             style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
                         )
                     }
                     Button(
                         onClick = onOpenGame,
-                        modifier = Modifier.height(42.dp).testTag("focus_play_orbit_pulse"),
+                        modifier = Modifier.height(42.dp).testTag("focus_play_mind_lab"),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.prismCyan, contentColor = Color(0xFF061322)),
                         contentPadding = PaddingValues(horizontal = 14.dp)
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Play", fontWeight = FontWeight.Bold)
+                        Text("Train", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -727,7 +760,7 @@ fun FocusScreen(
                             .fillMaxHeight()
                             .fillMaxWidth(levelProgress.coerceIn(0.03f, 1f))
                             .clip(RoundedCornerShape(99.dp))
-                            .background(c.gold)
+                            .background(Brush.horizontalGradient(listOf(c.prismCyan, c.prismViolet, c.gold)))
                     )
                 }
 
@@ -832,19 +865,48 @@ private fun ManageSubjectsDialog(
     var editingSubject by remember { mutableStateOf<String?>(null) }
     var editDraft by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = c.surface,
-        title = {
-            Text(
-                "Manage Subjects",
-                fontFamily = SpaceGroteskFontFamily,
-                fontWeight = FontWeight.Bold,
-                color = c.ink
+    Dialog(onDismissRequest = onDismiss) {
+        val shape = RoundedCornerShape(28.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(if (c.isDark) Color(0xD90E1633) else Color(0xEBFFFFFF))
+                .background(Brush.verticalGradient(listOf(c.glassHighlight, c.glassFill)))
+                .border(
+                    1.25.dp,
+                    Brush.linearGradient(listOf(c.glassBorderTop, c.prismCyan.copy(alpha = 0.45f), c.glassBorderBottom)),
+                    shape
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .backdropBlurIfSupported(16.dp)
             )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Manage Subjects",
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 19.sp,
+                        color = c.ink
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close dialog", tint = c.muted)
+                    }
+                }
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -855,7 +917,7 @@ private fun ManageSubjectsDialog(
                         placeholder = { Text("New subject", fontSize = 13.sp) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(14.dp)
                     )
                     Button(
                         onClick = {
@@ -864,9 +926,10 @@ private fun ManageSubjectsDialog(
                                 newSubject = ""
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.prismCyan, contentColor = Color(0xFF061322))
                     ) {
-                        Text("Add")
+                        Text("Add", fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -874,7 +937,7 @@ private fun ManageSubjectsDialog(
                     modifier = Modifier
                         .heightIn(max = 260.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     subjects.forEach { subj ->
                         if (editingSubject == subj) {
@@ -886,20 +949,22 @@ private fun ManageSubjectsDialog(
                                     value = editDraft,
                                     onValueChange = { editDraft = it },
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 TextButton(onClick = {
                                     onRename(subj, editDraft)
                                     editingSubject = null
-                                }) { Text("Save", color = c.okInk) }
+                                }) { Text("Save", color = c.okInk, fontWeight = FontWeight.Bold) }
                             }
                         } else {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(c.surface2)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (c.isDark) Color(0x38FFFFFF) else Color(0xA6FFFFFF))
+                                    .border(1.dp, c.glassBorderTop.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -927,12 +992,20 @@ private fun ManageSubjectsDialog(
                         }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done", fontWeight = FontWeight.Bold, color = c.goldInk)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
+                    ) {
+                        Text("Done", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
-    )
+    }
 }
