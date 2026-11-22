@@ -111,6 +111,7 @@ data class TrackerUiState(
     val updateState: UpdateCheckState = UpdateCheckState.Idle,
     val updateBannerDismissed: Boolean = false,
     val hasSavedGitHubToken: Boolean = false,
+    val savedRepoSlug: String = "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}",
     val confettiBurstId: Int = 0,
     val toastMessage: String? = null
 )
@@ -122,6 +123,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     private val audioRecorder = AudioRecorderHelper(application)
 
     private var updateCheckJob: Job? = null
+    private var lastAutoUpdateCheckMs: Long = 0L
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -139,6 +141,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         val active = loaded.activeProfile
         val defaultSubject = active?.subjects?.firstOrNull() ?: "Maths"
         val savedToken = UpdateNotificationHelper.getSavedGitHubToken(application)
+        val savedRepo = UpdateNotificationHelper.getSavedRepoSlug(application)
         _uiState.update {
             it.copy(
                 store = loaded,
@@ -150,12 +153,13 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     chatMessages = active?.chatHistory.orEmpty(),
                     doubtSubject = defaultSubject
                 ),
-                hasSavedGitHubToken = savedToken.isNotBlank()
+                hasSavedGitHubToken = savedToken.isNotBlank(),
+                savedRepoSlug = savedRepo
             )
         }
         // Automatically check GitHub Releases in the background on startup (non-blocking)
         viewModelScope.launch {
-            delay(1800L)
+            delay(1500L)
             checkForAppUpdate(silent = true)
         }
     }
@@ -1414,14 +1418,19 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     fun checkForAppUpdate(silent: Boolean = false) {
         updateCheckJob?.cancel()
+        lastAutoUpdateCheckMs = System.currentTimeMillis()
         if (!silent) {
             _uiState.update { it.copy(updateState = UpdateCheckState.Checking) }
         }
         updateCheckJob = viewModelScope.launch {
             val token = UpdateNotificationHelper.getSavedGitHubToken(getApplication())
-            val result = appUpdateService.checkLatestRelease(authToken = token)
+            val repoSlug = UpdateNotificationHelper.getSavedRepoSlug(getApplication())
+            val result = appUpdateService.checkLatestRelease(
+                authToken = token,
+                repoSlugOverride = repoSlug
+            )
             if (silent && result !is UpdateCheckState.UpdateAvailable) {
-                // Keep UI quiet on silent startup checks when offline or already up to date
+                // Keep UI quiet on silent startup/resume checks when offline or already up to date
                 return@launch
             }
             _uiState.update {
@@ -1432,7 +1441,11 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
             }
             when (result) {
                 is UpdateCheckState.UpdateAvailable -> {
-                    UpdateNotificationHelper.notifyUpdateAvailable(getApplication(), result)
+                    UpdateNotificationHelper.notifyUpdateAvailable(
+                        context = getApplication(),
+                        update = result,
+                        forceNotify = !silent
+                    )
                     if (!silent) {
                         showToast("Update available: ${result.latestVersionName}")
                     }
@@ -1448,6 +1461,23 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun checkForAppUpdateOnResume() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoUpdateCheckMs < 45_000L) return
+        checkForAppUpdate(silent = true)
+    }
+
+    fun onNotificationPermissionGranted() {
+        val current = _uiState.value.updateState
+        if (current is UpdateCheckState.UpdateAvailable) {
+            UpdateNotificationHelper.notifyUpdateAvailable(
+                context = getApplication(),
+                update = current,
+                forceNotify = true
+            )
+        }
+    }
+
     fun dismissUpdateBanner() {
         _uiState.update { it.copy(updateBannerDismissed = true) }
     }
@@ -1460,6 +1490,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         if (clean.isNotBlank()) {
             checkForAppUpdate(silent = false)
         }
+    }
+
+    fun saveGitHubRepoSlug(repoSlug: String) {
+        UpdateNotificationHelper.saveRepoSlug(getApplication(), repoSlug)
+        val normalized = UpdateNotificationHelper.getSavedRepoSlug(getApplication())
+        _uiState.update { it.copy(savedRepoSlug = normalized) }
+        showToast("Repo set to $normalized — checking...")
+        checkForAppUpdate(silent = false)
     }
 
     // ---- Helpers ----

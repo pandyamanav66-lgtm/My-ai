@@ -39,9 +39,13 @@ fun ProfileSheet(
     themeMode: String,
     updateState: UpdateCheckState = UpdateCheckState.Idle,
     hasSavedGitHubToken: Boolean = false,
+    savedRepoSlug: String = "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}",
+    notificationsEnabled: Boolean = true,
     onCheckForUpdates: () -> Unit = {},
     onOpenUpdateUrl: (String) -> Unit = {},
     onSaveGitHubToken: (String) -> Unit = {},
+    onSaveRepoSlug: (String) -> Unit = {},
+    onEnableNotifications: () -> Unit = {},
     onSaveDetails: (String, String, String, String) -> Unit,
     onSetThemeMode: (String) -> Unit,
     onSaveBackupFile: () -> Unit,
@@ -57,6 +61,7 @@ fun ProfileSheet(
     var targetExam by remember(profile.id) { mutableStateOf(profile.customDetails) }
     var showTokenBox by remember { mutableStateOf(false) }
     var tokenDraft by remember { mutableStateOf("") }
+    var repoDraft by remember(savedRepoSlug) { mutableStateOf(savedRepoSlug) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(confirmDelete) {
@@ -299,8 +304,10 @@ fun ProfileSheet(
                                                 text = "You're up to date!",
                                                 style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = c.okInk)
                                             )
+                                            val latestPart = st.latestBuildCode?.let { " • GitHub: #$it" }
+                                                ?: " • GitHub: ${st.latestVersionLabel}"
                                             Text(
-                                                text = "Installed v${st.currentVersionName} (#${st.currentVersionCode})",
+                                                text = "Installed v${st.currentVersionName} (#${st.currentVersionCode})$latestPart",
                                                 style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.okInk.copy(alpha = 0.85f))
                                             )
                                         }
@@ -393,7 +400,7 @@ fun ProfileSheet(
                                     is UpdateCheckState.UpdateAvailable -> st.releasePageUrl
                                     is UpdateCheckState.UpToDate -> st.releasePageUrl
                                     is UpdateCheckState.Error -> st.fallbackReleasesUrl
-                                    else -> "https://github.com/${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}/releases"
+                                    else -> "https://github.com/$savedRepoSlug/releases"
                                 }
                                 OutlinedButton(
                                     onClick = { onOpenUpdateUrl(releasesUrl) },
@@ -408,16 +415,35 @@ fun ProfileSheet(
                                 }
                             }
 
+                            if (!notificationsEnabled) {
+                                OutlinedButton(
+                                    onClick = onEnableNotifications,
+                                    modifier = Modifier.fillMaxWidth().height(42.dp).testTag("enable_notifications_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, c.gold.copy(alpha = 0.6f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = c.gold.copy(alpha = 0.10f),
+                                        contentColor = c.goldInk
+                                    )
+                                ) {
+                                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Enable Update Notifications", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
                             TextButton(
                                 onClick = { showTokenBox = !showTokenBox },
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                 modifier = Modifier.testTag("toggle_github_token_button")
                             ) {
-                                Icon(Icons.Rounded.Key, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Rounded.Tune, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = if (hasSavedGitHubToken) "Private Repo Token: Saved"
-                                    else "Private GitHub repo? Add token",
+                                    text = buildString {
+                                        append("Source: $savedRepoSlug")
+                                        if (hasSavedGitHubToken) append(" • Token saved")
+                                    },
                                     fontSize = 11.sp,
                                     color = c.muted
                                 )
@@ -426,9 +452,17 @@ fun ProfileSheet(
                             AnimatedVisibility(visible = showTokenBox) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedTextField(
+                                        value = repoDraft,
+                                        onValueChange = { repoDraft = it },
+                                        label = { Text("GitHub Repo (owner/repo)", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth().testTag("github_repo_input"),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    OutlinedTextField(
                                         value = tokenDraft,
                                         onValueChange = { tokenDraft = it },
-                                        placeholder = { Text("Paste read-only token (github_pat_...)", fontSize = 12.sp) },
+                                        placeholder = { Text("Optional private repo token (github_pat_...)", fontSize = 12.sp) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth().testTag("github_token_input"),
                                         shape = RoundedCornerShape(12.dp)
@@ -436,11 +470,17 @@ fun ProfileSheet(
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Button(
                                             onClick = {
-                                                onSaveGitHubToken(tokenDraft)
-                                                tokenDraft = ""
+                                                if (repoDraft.trim() != savedRepoSlug && repoDraft.contains("/")) {
+                                                    onSaveRepoSlug(repoDraft)
+                                                }
+                                                if (tokenDraft.isNotBlank()) {
+                                                    onSaveGitHubToken(tokenDraft)
+                                                    tokenDraft = ""
+                                                } else if (repoDraft.trim() == savedRepoSlug) {
+                                                    onCheckForUpdates()
+                                                }
                                                 showTokenBox = false
                                             },
-                                            enabled = tokenDraft.isNotBlank(),
                                             modifier = Modifier.weight(1f).height(42.dp),
                                             shape = RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = c.ok, contentColor = c.surface)
@@ -458,7 +498,7 @@ fun ProfileSheet(
                                                 shape = RoundedCornerShape(10.dp),
                                                 border = BorderStroke(1.dp, c.line)
                                             ) {
-                                                Text("Clear", color = c.badInk, fontSize = 12.sp)
+                                                Text("Clear Token", color = c.badInk, fontSize = 12.sp)
                                             }
                                         }
                                     }

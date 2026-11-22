@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -313,11 +314,16 @@ jobs:
           EOF
           )"
 
-          gh release create "${RELEASE_TAG}" "${ASSET_PATH}" \
-            --title "${RELEASE_TITLE}" \
-            --notes "${RELEASE_NOTES}" \
-            --target "${GITHUB_SHA}" \
-            --latest
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${ASSET_PATH}" --clobber
+            gh release edit "${RELEASE_TAG}" --title "${RELEASE_TITLE}" --notes "${RELEASE_NOTES}" --latest
+          else
+            gh release create "${RELEASE_TAG}" "${ASSET_PATH}" \
+              --title "${RELEASE_TITLE}" \
+              --notes "${RELEASE_NOTES}" \
+              --target "${GITHUB_SHA}" \
+              --latest
+          fi
 
       - name: Report APK download result
         if: ${{ always() && steps.upload_apk.outcome == 'success' }}

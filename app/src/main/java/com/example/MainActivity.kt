@@ -10,6 +10,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -33,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.*
@@ -62,8 +66,9 @@ class MainActivity : ComponentActivity() {
         // STEP 2: Unlock native high refresh rate (90Hz / 120Hz) on OEM Android displays
         enableHighRefreshRate()
 
-        // STEP 3: Ensure update notification channel exists
+        // STEP 3: Ensure update notification channel exists & schedule background periodic checks
         UpdateNotificationHelper.ensureChannel(this)
+        UpdateCheckScheduler.schedulePeriodicCheck(this)
         if (intent?.getBooleanExtra(UpdateNotificationHelper.EXTRA_OPEN_UPDATE, false) == true) {
             openUpdateTrigger.intValue++
         }
@@ -259,7 +264,23 @@ private fun StudyTrackerRoot(
                 // Request Android 13+ notification permission once cleanly so new-update alerts can notify the user
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
-                ) { /* handled gracefully; in-app banner still works even if denied */ }
+                ) { granted ->
+                    if (granted) {
+                        vm.onNotificationPermissionGranted()
+                    }
+                }
+
+                // Automatically re-check GitHub Releases whenever user returns to Study Tracker
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            vm.checkForAppUpdateOnResume()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
 
                 LaunchedEffect(activeProfile.id) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -270,6 +291,25 @@ private fun StudyTrackerRoot(
                         if (!granted) {
                             notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         }
+                    }
+                }
+
+                fun requestOrOpenNotificationSettings() {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        val settingsIntent = Intent().apply {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            } else {
+                                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                                data = Uri.fromParts("package", context.packageName, null)
+                            }
+                        }
+                        runCatching { context.startActivity(settingsIntent) }
                     }
                 }
 
@@ -403,9 +443,13 @@ private fun StudyTrackerRoot(
                             themeMode = state.store.theme,
                             updateState = state.updateState,
                             hasSavedGitHubToken = state.hasSavedGitHubToken,
+                            savedRepoSlug = state.savedRepoSlug,
+                            notificationsEnabled = UpdateNotificationHelper.areNotificationsAllowed(context),
                             onCheckForUpdates = { vm.checkForAppUpdate(silent = false) },
                             onOpenUpdateUrl = ::openExternalUrl,
                             onSaveGitHubToken = vm::saveGitHubUpdateToken,
+                            onSaveRepoSlug = vm::saveGitHubRepoSlug,
+                            onEnableNotifications = ::requestOrOpenNotificationSettings,
                             onSaveDetails = vm::updateProfileDetails,
                             onSetThemeMode = vm::setThemeMode,
                             onSaveBackupFile = { saveBackupLauncher.launch("drst-backup-${todayKey()}.json") },

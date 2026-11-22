@@ -350,10 +350,22 @@ class ExampleRobolectricTest {
         val current = svc.parseReleaseJson(releaseJson, currentVersionCode = 14, currentVersionName = "1.0.14")
         assertTrue(current is UpdateCheckState.UpToDate)
 
-        // Fallback array parsing (e.g. non-latest or pre-release list)
-        val arrayRes = svc.parseReleasesArrayJson("[$releaseJson]", currentVersionCode = 6, currentVersionName = "1.0.6")
+        // Fallback array parsing picks the highest build number even if listed after an older release
+        val olderJson = """
+            {
+              "tag_name": "debug-apk-build-9-1",
+              "name": "Study Tracker v1.0.9",
+              "html_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/tag/debug-apk-build-9-1",
+              "published_at": "2026-11-20T06:00:00Z",
+              "assets": []
+            }
+        """.trimIndent()
+        val arrayRes = svc.parseReleasesArrayJson("[$olderJson, $releaseJson]", currentVersionCode = 6, currentVersionName = "1.0.6")
         assertTrue(arrayRes is UpdateCheckState.UpdateAvailable)
         assertEquals(14, (arrayRes as UpdateCheckState.UpdateAvailable).latestBuildCode)
+
+        // Custom repo slug normalization
+        assertEquals("myuser" to "myrepo", svc.parseRepoSlug("https://github.com/myuser/myrepo/"))
     }
 
     @Test
