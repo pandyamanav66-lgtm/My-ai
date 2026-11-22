@@ -45,10 +45,7 @@ fun ProfileSheet(
     onSaveDetails: (String, String, String, String) -> Unit,
     onSetThemeMode: (String) -> Unit,
     onSaveBackupFile: () -> Unit,
-    onCopyBackupJson: () -> Unit,
     onRestoreBackupFile: () -> Unit,
-    onRestoreBackupText: (String) -> Unit,
-    onExportCsv: () -> Unit,
     onLogout: () -> Unit,
     onDeleteProfile: () -> Unit,
     onDismiss: () -> Unit
@@ -57,12 +54,7 @@ fun ProfileSheet(
     val c = LocalDrstColors.current
 
     var name by remember(profile.id) { mutableStateOf(profile.name) }
-    var email by remember(profile.id) { mutableStateOf(profile.email) }
-    var phone by remember(profile.id) { mutableStateOf(profile.phone) }
-    var customDetails by remember(profile.id) { mutableStateOf(profile.customDetails) }
-
-    var showPasteRestore by remember { mutableStateOf(false) }
-    var pasteJson by remember { mutableStateOf("") }
+    var targetExam by remember(profile.id) { mutableStateOf(profile.customDetails) }
     var showTokenBox by remember { mutableStateOf(false) }
     var tokenDraft by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -77,47 +69,57 @@ fun ProfileSheet(
     LiquidGlassBackdrop(translucentOverlay = true) {
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
             // Minimal Floating Liquid Glass Top Bar
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(if (c.isDark) androidx.compose.ui.graphics.Color(0x990E1530) else androidx.compose.ui.graphics.Color(0xD9FFFFFF))
+                        .border(1.1.dp, c.glassBorderTop, RoundedCornerShape(24.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(c.prismCyan.copy(alpha = 0.22f))
-                            .border(1.2.dp, c.prismCyan.copy(alpha = 0.7f), CircleShape),
+                            .background(c.prismCyan.copy(alpha = 0.20f))
+                            .border(1.2.dp, c.prismCyan.copy(alpha = 0.65f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = profile.initials,
-                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.ink)
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = if (c.isDark) c.prismCyan else c.band
+                            )
                         )
                     }
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Profile & Updates",
-                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.ink)
+                            text = "Profile & Settings",
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = c.ink
+                            )
                         )
                         Text(
                             text = profile.name,
                             style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
                         )
                     }
-                }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(c.glassFill)
-                        .border(1.dp, c.glassBorderTop.copy(alpha = 0.55f), CircleShape)
-                ) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close profile", tint = c.ink)
+                    IconButton(onClick = onDismiss, modifier = Modifier.testTag("close_profile_sheet")) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Close profile", tint = c.ink)
+                    }
                 }
             }
 
@@ -126,166 +128,95 @@ fun ProfileSheet(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. Personal Details
+                // 1. Minimal Profile Info (Name + Target Exam only)
                 item(key = "profile_details") {
-                    DrstCard(title = "Student Profile") {
+                    DrstCard(title = "Profile") {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
                                 value = name,
                                 onValueChange = { name = it },
                                 label = { Text("Name") },
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth().testTag("profile_name_input"),
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
                             OutlinedTextField(
-                                value = email,
-                                onValueChange = { email = it },
-                                label = { Text("Email (optional)") },
+                                value = targetExam,
+                                onValueChange = { targetExam = it },
+                                label = { Text("Target Exam / Goal (optional)") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = phone,
-                                onValueChange = { phone = it },
-                                label = { Text("Phone (optional)") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = customDetails,
-                                onValueChange = { customDetails = it },
-                                label = { Text("Target Exam / Class / Notes") },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                minLines = 2
                             )
                             Button(
-                                onClick = { onSaveDetails(name, email, phone, customDetails) },
+                                onClick = {
+                                    if (name.isNotBlank()) {
+                                        onSaveDetails(name, profile.email, profile.phone, targetExam)
+                                    }
+                                },
                                 enabled = name.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("save_profile_button"),
+                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("save_profile_details_button"),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
                             ) {
-                                Text("Save Details", fontWeight = FontWeight.Bold)
+                                Text("Save Profile", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
 
-                // 2. Theme Selector (Auto / Light / Dark)
-                item(key = "theme_selector") {
-                    DrstCard(title = "Liquid Glass Theme") {
+                // 2. Theme Switcher
+                item(key = "theme_switcher") {
+                    DrstCard(title = "Appearance") {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf("auto" to "Auto", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
-                                val active = themeMode == mode
+                            listOf("auto" to "Auto", "light" to "Light", "dark" to "Dark").forEach { (key, label) ->
+                                val active = themeMode == key
                                 OutlinedButton(
-                                    onClick = { onSetThemeMode(mode) },
-                                    modifier = Modifier.weight(1f).height(44.dp).testTag("theme_$mode"),
+                                    onClick = { onSetThemeMode(key) },
+                                    modifier = Modifier.weight(1f).height(44.dp).testTag("theme_$key"),
                                     shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.5.dp, if (active) c.gold else c.line),
+                                    border = BorderStroke(if (active) 1.5.dp else 1.dp, if (active) c.gold else c.line),
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         containerColor = if (active) c.band else c.surface2,
                                         contentColor = if (active) c.onBand else c.ink
                                     )
                                 ) {
-                                    Text(label, fontWeight = FontWeight.Bold)
+                                    Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                 }
                             }
                         }
                     }
                 }
 
-                // 3. Backup & Restore (drst.v2) + CSV Export
+                // 3. Simple Backup & Restore (2 clean buttons)
                 item(key = "backup_restore") {
-                    DrstCard(title = "Backup & Restore (drst.v2)") {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = onSaveBackupFile,
-                                    modifier = Modifier.weight(1f).height(44.dp).testTag("save_backup_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
-                                ) {
-                                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Save File", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(
-                                    onClick = onCopyBackupJson,
-                                    modifier = Modifier.weight(1f).height(44.dp).testTag("copy_backup_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, c.line)
-                                ) {
-                                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.ink)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Copy JSON", fontSize = 12.sp, color = c.ink, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = onRestoreBackupFile,
-                                    modifier = Modifier.weight(1f).height(44.dp).testTag("restore_file_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, c.gold)
-                                ) {
-                                    Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.goldInk)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Restore File", fontSize = 12.sp, color = c.ink, fontWeight = FontWeight.SemiBold)
-                                }
-                                OutlinedButton(
-                                    onClick = { showPasteRestore = !showPasteRestore },
-                                    modifier = Modifier.weight(1f).height(44.dp).testTag("restore_text_toggle"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, c.line)
-                                ) {
-                                    Text("Paste JSON", fontSize = 12.sp, color = c.ink, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-
-                            AnimatedVisibility(visible = showPasteRestore) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedTextField(
-                                        value = pasteJson,
-                                        onValueChange = { pasteJson = it },
-                                        placeholder = { Text("Paste drst.v2 backup JSON here...", fontSize = 12.sp) },
-                                        modifier = Modifier.fillMaxWidth().testTag("paste_backup_input"),
-                                        minLines = 3,
-                                        maxLines = 5,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    Button(
-                                        onClick = {
-                                            if (pasteJson.isNotBlank()) {
-                                                onRestoreBackupText(pasteJson)
-                                                pasteJson = ""
-                                                showPasteRestore = false
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth().height(42.dp).testTag("confirm_paste_restore"),
-                                        colors = ButtonDefaults.buttonColors(containerColor = c.ok, contentColor = c.surface),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("Restore from Pasted JSON", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = onExportCsv,
-                                modifier = Modifier.fillMaxWidth().height(44.dp).testTag("export_csv_button"),
+                    DrstCard(title = "Backup & Restore") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onSaveBackupFile,
+                                modifier = Modifier.weight(1f).height(44.dp).testTag("save_backup_button"),
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, c.line)
+                                colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
                             ) {
-                                Icon(Icons.Rounded.TableChart, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.ink)
+                                Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Export CSV Log", color = c.ink, fontWeight = FontWeight.SemiBold)
+                                Text("Save Backup", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = onRestoreBackupFile,
+                                modifier = Modifier.weight(1f).height(44.dp).testTag("restore_file_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, c.gold)
+                            ) {
+                                Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.goldInk)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Restore", color = c.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -328,16 +259,6 @@ fun ProfileSheet(
                                 }
                             }
 
-                            Text(
-                                text = "Check GitHub Releases for newer builds. Updates install directly over your current app without deleting your study data.",
-                                style = TextStyle(
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 12.sp,
-                                    color = c.muted,
-                                    lineHeight = 17.sp
-                                )
-                            )
-
                             when (val st = updateState) {
                                 is UpdateCheckState.Idle -> Unit
 
@@ -352,19 +273,10 @@ fun ProfileSheet(
                                             .border(1.dp, c.line, RoundedCornerShape(12.dp))
                                             .padding(12.dp)
                                     ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = c.gold
-                                        )
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.gold)
                                         Text(
-                                            text = "Checking latest release on GitHub...",
-                                            style = TextStyle(
-                                                fontFamily = InterFontFamily,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                color = c.ink
-                                            )
+                                            text = "Checking for updates...",
+                                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, color = c.ink)
                                         )
                                     }
                                 }
@@ -381,29 +293,15 @@ fun ProfileSheet(
                                             .padding(12.dp)
                                             .testTag("update_status_uptodate")
                                     ) {
-                                        Icon(
-                                            Icons.Rounded.Verified,
-                                            contentDescription = null,
-                                            tint = c.ok,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        Icon(Icons.Rounded.Verified, contentDescription = null, tint = c.ok, modifier = Modifier.size(20.dp))
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = "You're up to date!",
-                                                style = TextStyle(
-                                                    fontFamily = SpaceGroteskFontFamily,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
-                                                    color = c.okInk
-                                                )
+                                                style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = c.okInk)
                                             )
                                             Text(
-                                                text = "Installed v${st.currentVersionName} (Build #${st.currentVersionCode}) • Latest: ${st.latestVersionLabel}",
-                                                style = TextStyle(
-                                                    fontFamily = InterFontFamily,
-                                                    fontSize = 12.sp,
-                                                    color = c.okInk.copy(alpha = 0.85f)
-                                                )
+                                                text = "Installed v${st.currentVersionName} (#${st.currentVersionCode})",
+                                                style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.okInk.copy(alpha = 0.85f))
                                             )
                                         }
                                     }
@@ -424,66 +322,37 @@ fun ProfileSheet(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Icon(
-                                                Icons.Rounded.SystemUpdate,
-                                                contentDescription = null,
-                                                tint = c.goldInk,
-                                                modifier = Modifier.size(22.dp)
-                                            )
+                                            Icon(Icons.Rounded.SystemUpdate, contentDescription = null, tint = c.goldInk, modifier = Modifier.size(22.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
-                                                    text = "New Update Ready: ${st.latestVersionName}",
-                                                    style = TextStyle(
-                                                        fontFamily = SpaceGroteskFontFamily,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 14.sp,
-                                                        color = c.ink
-                                                    )
+                                                    text = "New Update: ${st.latestVersionName}",
+                                                    style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = c.ink)
                                                 )
                                                 val meta = listOfNotNull(
                                                     "Build #${st.latestBuildCode}",
-                                                    st.apkSizeLabel.takeIf { it.isNotBlank() },
-                                                    st.publishedDate.takeIf { it.isNotBlank() }
+                                                    st.apkSizeLabel.takeIf { it.isNotBlank() }
                                                 ).joinToString(" • ")
                                                 Text(
                                                     text = meta,
-                                                    style = TextStyle(
-                                                        fontFamily = InterFontFamily,
-                                                        fontSize = 12.sp,
-                                                        color = c.muted
-                                                    )
+                                                    style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.muted)
                                                 )
                                             }
                                         }
                                         Button(
                                             onClick = { onOpenUpdateUrl(st.apkDownloadUrl) },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(48.dp)
-                                                .testTag("download_update_apk_button"),
+                                            modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_update_apk_button"),
                                             shape = RoundedCornerShape(12.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = c.gold,
-                                                contentColor = c.band
-                                            )
+                                            colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band)
                                         ) {
-                                            Icon(
-                                                Icons.Rounded.Download,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
+                                            Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                text = "Download Update APK",
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                            Text("Download Update APK", fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
 
                                 is UpdateCheckState.Error -> {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(12.dp))
@@ -494,11 +363,7 @@ fun ProfileSheet(
                                     ) {
                                         Text(
                                             text = st.message,
-                                            style = TextStyle(
-                                                fontFamily = InterFontFamily,
-                                                fontSize = 12.sp,
-                                                color = c.badInk
-                                            )
+                                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 12.sp, color = c.badInk)
                                         )
                                     }
                                 }
@@ -511,24 +376,14 @@ fun ProfileSheet(
                                 Button(
                                     onClick = onCheckForUpdates,
                                     enabled = updateState !is UpdateCheckState.Checking,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp)
-                                        .testTag("check_updates_button"),
+                                    modifier = Modifier.weight(1f).height(46.dp).testTag("check_updates_button"),
                                     shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = c.band,
-                                        contentColor = c.onBand
-                                    )
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
                                 ) {
-                                    Icon(
-                                        Icons.Rounded.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        text = if (updateState is UpdateCheckState.Checking) "Checking..." else "Check for Updates",
+                                        text = if (updateState is UpdateCheckState.Checking) "Checking..." else "Check Updates",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -542,48 +397,29 @@ fun ProfileSheet(
                                 }
                                 OutlinedButton(
                                     onClick = { onOpenUpdateUrl(releasesUrl) },
-                                    modifier = Modifier
-                                        .height(48.dp)
-                                        .testTag("open_releases_button"),
+                                    modifier = Modifier.height(46.dp).testTag("open_releases_button"),
                                     shape = RoundedCornerShape(12.dp),
                                     border = BorderStroke(1.dp, c.line),
                                     contentPadding = PaddingValues(horizontal = 14.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Rounded.OpenInNew,
-                                        contentDescription = "Open GitHub Releases",
-                                        tint = c.ink,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Icon(Icons.Rounded.OpenInNew, contentDescription = "Open GitHub Releases", tint = c.ink, modifier = Modifier.size(17.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "Releases",
-                                        fontSize = 12.sp,
-                                        color = c.ink,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                                    Text("Releases", fontSize = 12.sp, color = c.ink, fontWeight = FontWeight.SemiBold)
                                 }
                             }
 
-                            // Optional Private Repo Token (only needed if user keeps GitHub repo Private)
                             TextButton(
                                 onClick = { showTokenBox = !showTokenBox },
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                                 modifier = Modifier.testTag("toggle_github_token_button")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Key,
-                                    contentDescription = null,
-                                    tint = c.muted,
-                                    modifier = Modifier.size(15.dp)
-                                )
+                                Icon(Icons.Rounded.Key, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = if (hasSavedGitHubToken) "Private Repo Token: Saved (tap to change)"
-                                    else "Using Private GitHub repo? Add token (optional)",
+                                    text = if (hasSavedGitHubToken) "Private Repo Token: Saved"
+                                    else "Private GitHub repo? Add token",
                                     fontSize = 11.sp,
-                                    color = c.muted,
-                                    fontWeight = FontWeight.Medium
+                                    color = c.muted
                                 )
                             }
 
@@ -592,7 +428,7 @@ fun ProfileSheet(
                                     OutlinedTextField(
                                         value = tokenDraft,
                                         onValueChange = { tokenDraft = it },
-                                        placeholder = { Text("Paste read-only GitHub token (ghp_...)", fontSize = 12.sp) },
+                                        placeholder = { Text("Paste read-only token (github_pat_...)", fontSize = 12.sp) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth().testTag("github_token_input"),
                                         shape = RoundedCornerShape(12.dp)
@@ -632,22 +468,21 @@ fun ProfileSheet(
                     }
                 }
 
-                // 5. Local Profile Switch & Delete
-                item(key = "account_actions") {
-                    DrstCard(title = "Profile Actions") {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // 5. Switch / Delete Profile
+                item(key = "profile_actions") {
+                    DrstCard(title = "Account") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = onLogout,
-                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("logout_button"),
+                                modifier = Modifier.fillMaxWidth().height(44.dp).testTag("switch_profile_button"),
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, c.line)
                             ) {
-                                Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, tint = c.ink, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Switch profile", color = c.ink, fontWeight = FontWeight.SemiBold)
+                                Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.ink)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Switch Profile", color = c.ink, fontWeight = FontWeight.SemiBold)
                             }
-
-                            Button(
+                            OutlinedButton(
                                 onClick = {
                                     if (confirmDelete) {
                                         confirmDelete = false
@@ -656,17 +491,18 @@ fun ProfileSheet(
                                         confirmDelete = true
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("delete_profile_button"),
+                                modifier = Modifier.fillMaxWidth().height(44.dp).testTag("delete_profile_button"),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = c.badBg,
+                                border = BorderStroke(1.dp, c.badInk.copy(alpha = 0.6f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (confirmDelete) c.badBg else c.surface2,
                                     contentColor = c.badInk
                                 )
                             ) {
-                                Icon(Icons.Rounded.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
+                                Icon(Icons.Rounded.DeleteForever, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = if (confirmDelete) "Tap again to permanently delete" else "Delete profile",
+                                    if (confirmDelete) "Tap again to permanently delete" else "Delete Profile",
                                     fontWeight = FontWeight.Bold
                                 )
                             }

@@ -1,15 +1,17 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -31,7 +33,6 @@ import com.example.ui.components.DrstCard
 import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LocalDrstColors
 import com.example.ui.theme.SpaceGroteskFontFamily
-import com.example.ui.theme.categoryColor
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -42,33 +43,26 @@ private data class BentoStat(
     val icon: ImageVector
 )
 
+/**
+ * Clean, minimal Progress tab combining Today's overview + Weekly momentum + Subject hours
+ * in the exact Prism Liquid Glass design system (without redundant charts or clutter).
+ */
 @Composable
 fun DashboardScreen(
     profile: UserProfile,
     selectedDate: String,
-    onOpenGame: () -> Unit = {}
+    onShareWeeklyReport: () -> Unit = {}
 ) {
     val c = LocalDrstColors.current
-    val dayLog = profile.days[selectedDate] ?: DayLog()
     val total = profile.routine.size
     val completed = Analytics.completedCount(profile, selectedDate)
     val pct = Analytics.completionPercent(profile, selectedDate)
     val studyHrs = Analytics.studyHoursForDay(profile, selectedDate)
-    val goalPct = if (profile.dailyStudyGoalHours > 0) {
-        ((studyHrs / profile.dailyStudyGoalHours) * 100).roundToInt().coerceAtMost(999)
-    } else 0
     val streak = Analytics.calculateStreak(profile, todayKey())
     val weekStart = startOfWeekMonday(selectedDate)
     val weekDays = remember(weekStart) { (0..6).map { shiftDateKey(weekStart, it) } }
     val weekAvg = weekDays.map { Analytics.completionPercent(profile, it) }.average().roundToInt()
-    val focusMin7d = profile.focusSessions.filter { it.date in weekDays }.sumOf { it.minutes }
-    val totalXp = Analytics.totalXp(profile)
-    val (level, levelTitle, levelProgress) = Analytics.levelInfo(totalXp)
-
-    val studyTasks = remember(profile.routine) { profile.routine.filter { it.isStudyTask } }
-    val categoryGroups = remember(profile.routine) {
-        profile.routine.groupBy { it.category }.entries.sortedByDescending { it.value.size }
-    }
+    val weekStudyHrs = weekDays.sumOf { Analytics.studyHoursForDay(profile, it) }
     val weekSubjectHours = remember(profile, weekDays) {
         Analytics.subjectHoursInDateRange(profile, weekDays)
     }
@@ -76,10 +70,8 @@ fun DashboardScreen(
     val bentoStats = listOf(
         BentoStat("Tasks Done", "$completed/$total", c.prismCyan, Icons.Rounded.TaskAlt),
         BentoStat("Study Today", String.format(Locale.US, "%.1fh", studyHrs), c.gold, Icons.Rounded.MenuBook),
-        BentoStat("Goal Met", "$goalPct%", if (goalPct >= 100) c.ok else c.prismViolet, Icons.Rounded.Flag),
         BentoStat("Streak", "$streak days", c.prismCoral, Icons.Rounded.LocalFireDepartment),
-        BentoStat("Week Avg", "$weekAvg%", if (weekAvg >= 75) c.ok else c.warn, Icons.Rounded.TrendingUp),
-        BentoStat("Focus 7d", "${focusMin7d}m", c.prismViolet, Icons.Rounded.Bolt)
+        BentoStat("Week Avg", "$weekAvg%", if (weekAvg >= 75) c.ok else c.prismViolet, Icons.Rounded.TrendingUp)
     )
 
     LazyColumn(
@@ -87,7 +79,7 @@ fun DashboardScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 114.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Hero Bento Card: Completion Ring + Level XP + Momentum Badge
+        // 1. Minimal Hero Progress Ring + Weekly Study Summary
         item(key = "hero_bento") {
             val statusText = when {
                 pct >= 80 -> "Strong Momentum"
@@ -108,7 +100,7 @@ fun DashboardScreen(
                 ) {
                     CompletionRing(
                         percent = pct,
-                        size = 126.dp,
+                        size = 122.dp,
                         strokeWidth = 11.dp,
                         label = "TODAY"
                     )
@@ -135,20 +127,20 @@ fun DashboardScreen(
                             )
                         }
 
-                        Column {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "Level $level • $levelTitle",
+                                text = String.format(Locale.US, "%.1f hrs this week", weekStudyHrs),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = TextStyle(
                                     fontFamily = SpaceGroteskFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 17.sp,
+                                    fontSize = 18.sp,
                                     color = c.ink
                                 )
                             )
                             Text(
-                                text = "$totalXp XP earned",
+                                text = "Daily goal: ${String.format(Locale.US, "%.1f", profile.dailyStudyGoalHours)}h",
                                 style = TextStyle(
                                     fontFamily = InterFontFamily,
                                     fontSize = 12.sp,
@@ -156,161 +148,32 @@ fun DashboardScreen(
                                 )
                             )
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(99.dp))
-                                .background(c.track)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(levelProgress.coerceIn(0.06f, 1f))
-                                    .clip(RoundedCornerShape(99.dp))
-                                    .background(
-                                        Brush.horizontalGradient(listOf(c.prismCyan, c.prismViolet, c.gold))
-                                    )
-                            )
-                        }
                     }
                 }
             }
         }
 
-        // 2. Playful Bento Glass Stats Grid (2x3 compact, 3x2 wide)
+        // 2. Crisp 2x2 Bento Glass Stats Grid
         item(key = "kpi_grid") {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cols = if (maxWidth >= 600.dp) 3 else 2
-                val rows = bentoStats.chunked(cols)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    rows.forEach { rowItems ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            rowItems.forEach { stat ->
-                                BentoStatTile(stat = stat, modifier = Modifier.weight(1f))
-                            }
-                            repeat(cols - rowItems.size) {
-                                Spacer(Modifier.weight(1f))
-                            }
+            val rows = bentoStats.chunked(2)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowItems.forEach { stat ->
+                            BentoStatTile(stat = stat, modifier = Modifier.weight(1f))
                         }
                     }
                 }
             }
         }
 
-        // 3. Vibrant Prism "Mind Lab" Study Focus Trainer Card (cleanly off top/bottom bars)
-        item(key = "dashboard_mind_game_card") {
-            val shape = RoundedCornerShape(26.dp)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                c.band.copy(alpha = 0.90f),
-                                c.band2.copy(alpha = 0.84f)
-                            )
-                        )
-                    )
-                    .border(
-                        1.2.dp,
-                        Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.85f), c.prismViolet.copy(alpha = 0.75f), c.gold.copy(alpha = 0.75f))),
-                        shape
-                    )
-                    .clickable(onClick = onOpenGame)
-                    .padding(16.dp)
-                    .testTag("dashboard_play_game_button")
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.30f), c.prismViolet.copy(alpha = 0.35f)))
-                            )
-                            .border(1.dp, Color(0x80FFFFFF), RoundedCornerShape(16.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Psychology,
-                            contentDescription = "Mind Lab study focus game",
-                            tint = c.prismCyan,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "MIND LAB • FOCUS TRAINER",
-                            style = TextStyle(
-                                fontFamily = InterFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
-                                letterSpacing = 1.sp,
-                                color = c.prismCyan
-                            )
-                        )
-                        Text(
-                            text = "Memory • Stroop • Math",
-                            style = TextStyle(
-                                fontFamily = SpaceGroteskFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp,
-                                color = c.onBand
-                            )
-                        )
-                        Text(
-                            text = "Best ${profile.bestGameScore} • Lvl ${profile.bestGameWave.coerceAtLeast(1)} • Earn Study XP",
-                            style = TextStyle(
-                                fontFamily = InterFontFamily,
-                                fontSize = 11.sp,
-                                color = c.onBandMuted
-                            )
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(99.dp))
-                            .background(Brush.horizontalGradient(listOf(c.prismCyan, c.ok)))
-                            .padding(horizontal = 15.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = null,
-                            tint = Color(0xFF061322),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "Train",
-                            style = TextStyle(
-                                fontFamily = SpaceGroteskFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = Color(0xFF061322)
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        // 4. This-Week Daily Columns (crystal prism pillars)
+        // 3. This-Week Daily Columns (crystal prism pillars)
         item(key = "week_columns_card") {
             val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-            DrstCard(title = "This Week Momentum") {
+            DrstCard(title = "This Week") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -376,55 +239,12 @@ fun DashboardScreen(
             }
         }
 
-        // 5. Study Sessions Bars
-        item(key = "study_sessions_card") {
-            DrstCard(title = "Study Sessions (${formatCompactDate(selectedDate)})") {
-                if (studyTasks.isEmpty()) {
-                    Text(
-                        text = "No study blocks in your routine yet.",
-                        style = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, color = c.muted)
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        studyTasks.forEach { task ->
-                            val done = task.id in dayLog.completedIds
-                            HorizontalBarRow(
-                                label = task.subject.ifBlank { task.title },
-                                fraction = if (done) 1f else 0.14f,
-                                valueText = if (done) formatDuration(task.durationMinutes) else "Pending",
-                                barColor = if (done) c.ok else c.prismViolet.copy(alpha = 0.45f)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 6. By-Category Bars
-        item(key = "by_category_card") {
-            DrstCard(title = "By Category") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    categoryGroups.forEach { (cat, tasks) ->
-                        val catDone = tasks.count { it.id in dayLog.completedIds }
-                        val frac = if (tasks.isEmpty()) 0f else catDone.toFloat() / tasks.size
-                        HorizontalBarRow(
-                            label = cat,
-                            fraction = frac,
-                            valueText = "$catDone/${tasks.size}",
-                            barColor = categoryColor(cat),
-                            dotColor = categoryColor(cat)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 7. Hours by Subject This Week
+        // 4. Hours by Subject This Week + 1-tap Share Weekly Summary
         item(key = "subject_hours_week_card") {
-            DrstCard(title = "Hours by Subject This Week") {
+            DrstCard(title = "Study Hours by Subject") {
                 if (weekSubjectHours.isEmpty()) {
                     Text(
-                        text = "Tick study blocks or complete Focus sessions to see your subject breakdown here.",
+                        text = "Complete study tasks or Focus sessions to see your subject hours here.",
                         style = TextStyle(fontFamily = InterFontFamily, fontSize = 13.sp, color = c.muted)
                     )
                 } else {
@@ -439,6 +259,20 @@ fun DashboardScreen(
                             )
                         }
                     }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                OutlinedButton(
+                    onClick = onShareWeeklyReport,
+                    modifier = Modifier.fillMaxWidth().height(44.dp).testTag("share_weekly_report_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, c.glassBorderTop),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = c.ink)
+                ) {
+                    Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.prismCyan)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share Weekly Summary", fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }

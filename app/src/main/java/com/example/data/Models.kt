@@ -7,11 +7,10 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class AppTab(val label: String) {
-    CHECKLIST("Checklist"),
-    DASHBOARD("Dashboard"),
-    WEEKLY("Weekly"),
+    CHECKLIST("Today"),
     FOCUS("Focus"),
-    AI_COACH("AI Hub")
+    DASHBOARD("Progress"),
+    AI_COACH("AI Coach")
 }
 
 enum class ChecklistFilter(val label: String) {

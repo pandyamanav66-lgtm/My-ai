@@ -175,38 +175,6 @@ private fun StudyTrackerRoot(
         }
     }
 
-    val exportCsvLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    out.write(vm.getCsvExport().toByteArray(Charsets.UTF_8))
-                }
-            }.onSuccess {
-                vm.showToast("CSV exported")
-            }.onFailure {
-                vm.showToast("Could not export CSV")
-            }
-        }
-    }
-
-    val saveWeeklyReportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { out ->
-                    out.write(vm.getWeeklyReportText().toByteArray(Charsets.UTF_8))
-                }
-            }.onSuccess {
-                vm.showToast("Weekly report saved")
-            }.onFailure {
-                vm.showToast("Could not save report")
-            }
-        }
-    }
-
     fun copyToClipboard(label: String, text: String, toast: String) {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -358,101 +326,49 @@ private fun StudyTrackerRoot(
                                     label = "tab_crossfade"
                                 ) { tab ->
                                     when (tab) {
-                                    AppTab.CHECKLIST -> ChecklistScreen(
-                                        profile = activeProfile,
-                                        selectedDate = state.selectedDate,
-                                        filter = state.checklistFilter,
-                                        onSelectFilter = vm::setChecklistFilter,
-                                        onToggleTask = vm::toggleTaskCompletion,
-                                        onUpdateNote = vm::updateTaskNote,
-                                        onAdjustStudyGoal = vm::adjustStudyGoal,
-                                        onToggleRestDay = vm::toggleRestDay,
-                                        onResetDay = vm::resetCurrentDay
-                                    )
+                                        AppTab.CHECKLIST -> ChecklistScreen(
+                                            profile = activeProfile,
+                                            selectedDate = state.selectedDate,
+                                            filter = state.checklistFilter,
+                                            onSelectFilter = vm::setChecklistFilter,
+                                            onToggleTask = vm::toggleTaskCompletion,
+                                            onUpdateNote = vm::updateTaskNote,
+                                            onAdjustStudyGoal = vm::adjustStudyGoal,
+                                            onToggleRestDay = vm::toggleRestDay,
+                                            onResetDay = vm::resetCurrentDay
+                                        )
 
-                                    AppTab.DASHBOARD -> DashboardScreen(
-                                        profile = activeProfile,
-                                        selectedDate = state.selectedDate,
-                                        onOpenGame = { vm.setGameOverlayVisible(true) }
-                                    )
+                                        AppTab.FOCUS -> FocusScreen(
+                                            profile = activeProfile,
+                                            timer = state.timer,
+                                            onSelectSubject = vm::selectFocusSubject,
+                                            onAddSubject = vm::addSubject,
+                                            onRenameSubject = vm::renameSubject,
+                                            onDeleteSubject = vm::deleteSubject,
+                                            onSetPresetMinutes = vm::setFocusPresetMinutes,
+                                            onStartOrResume = vm::startOrResumeTimer,
+                                            onPause = vm::pauseTimer,
+                                            onSaveAndStop = vm::saveAndStopTimer,
+                                            onResetTimer = vm::resetTimerState,
+                                            onAddExam = vm::addExam,
+                                            onDeleteExam = vm::deleteExam,
+                                            onOpenGame = { vm.setGameOverlayVisible(true) }
+                                        )
 
-                                    AppTab.WEEKLY -> WeeklyScreen(
-                                        profile = activeProfile,
-                                        weekStartMonday = state.weeklyStartMonday,
-                                        onPrevWeek = { vm.shiftWeek(-1) },
-                                        onNextWeek = { vm.shiftWeek(1) },
-                                        onJumpCurrentWeek = vm::jumpToCurrentWeek,
-                                        onOpenDay = vm::openDayOnChecklist,
-                                        onCopyReport = {
-                                            copyToClipboard("Weekly Report", vm.getWeeklyReportText(), "Weekly report copied")
-                                        },
-                                        onShareWhatsApp = { shareOnWhatsApp(vm.getWeeklyReportText()) },
-                                        onSaveReportFile = {
-                                            saveWeeklyReportLauncher.launch("weekly-report-${state.weeklyStartMonday}.txt")
-                                        }
-                                    )
+                                        AppTab.DASHBOARD -> DashboardScreen(
+                                            profile = activeProfile,
+                                            selectedDate = state.selectedDate,
+                                            onShareWeeklyReport = { shareOnWhatsApp(vm.getWeeklyReportText()) }
+                                        )
 
-                                    AppTab.FOCUS -> FocusScreen(
-                                        profile = activeProfile,
-                                        timer = state.timer,
-                                        doubtFilter = state.doubtFilter,
-                                        onSelectSubject = vm::selectFocusSubject,
-                                        onAddSubject = vm::addSubject,
-                                        onRenameSubject = vm::renameSubject,
-                                        onDeleteSubject = vm::deleteSubject,
-                                        onSetPresetMinutes = vm::setFocusPresetMinutes,
-                                        onStartOrResume = vm::startOrResumeTimer,
-                                        onPause = vm::pauseTimer,
-                                        onSaveAndStop = vm::saveAndStopTimer,
-                                        onResetTimer = vm::resetTimerState,
-                                        onAddExam = vm::addExam,
-                                        onDeleteExam = vm::deleteExam,
-                                        onSetDoubtFilter = vm::setDoubtFilter,
-                                        onAddDoubt = vm::addDoubt,
-                                        onToggleDoubtSolved = vm::toggleDoubtSolved,
-                                        onDeleteDoubt = vm::deleteDoubt,
-                                        onAskAiDoubt = vm::sendDoubtToAiCoach,
-                                        onOpenGame = { vm.setGameOverlayVisible(true) }
-                                    )
-
-                                    AppTab.AI_COACH -> AiCoachScreen(
-                                        profile = activeProfile,
-                                        aiState = state.ai,
-                                        onSelectSection = vm::selectAiHubSection,
-                                        onSelectChatMode = vm::selectChatMode,
-                                        onSendChatMessage = vm::sendChatMessage,
-                                        onClearChatHistory = vm::clearChatHistory,
-                                        onStartTranscriptRecording = vm::startTranscriptRecording,
-                                        onStopAndTranscribeAudio = vm::stopAndTranscribeAudio,
-                                        onCopyTranscript = { txt ->
-                                            copyToClipboard("Transcript", txt, "Transcript copied")
-                                        },
-                                        onSendTranscriptToChat = vm::sendTranscriptToChat,
-                                        onSendTranscriptToQuickAdd = vm::sendTranscriptToQuickAdd,
-                                        onSaveTranscriptAsDoubt = { txt ->
-                                            val subj = activeProfile.subjects.firstOrNull() ?: "General"
-                                            vm.addDoubt(subj, txt)
-                                            vm.showToast("Saved transcript to Doubt Notebook")
-                                        },
-                                        onToggleVoiceAutoSpeak = vm::toggleVoiceAutoSpeak,
-                                        onStopVoiceSpeaking = vm::stopVoiceSpeaking,
-                                        onStartVoiceRecording = vm::startVoiceConversationRecording,
-                                        onStopVoiceRecordingAndRespond = vm::stopVoiceRecordingAndRespond,
-                                        onClearVoiceConversation = vm::clearVoiceConversation,
-                                        onSelectTool = vm::selectAiTool,
-                                        onSetLanguage = vm::setAiLanguage,
-                                        onRunWeeklyCoach = vm::runWeeklyCoach,
-                                        onRunBuildRoutine = vm::runBuildMyRoutine,
-                                        onApplyPreviewRoutine = vm::applyPreviewRoutine,
-                                        onDiscardPreviewRoutine = vm::discardPreviewRoutine,
-                                        onUndoAppliedRoutine = vm::undoAppliedRoutine,
-                                        onRunQuickAdd = vm::runQuickAdd,
-                                        onUndoQuickAdd = vm::undoQuickAdd,
-                                        onRunExamPlanner = vm::runExamPlanner,
-                                        onUpdateDoubtDraft = vm::updateDoubtDraft,
-                                        onRunDoubtSolver = vm::runDoubtSolver,
-                                        onStopAi = vm::stopAiGeneration,
-                                        onDismissError = vm::clearAiError,
+                                        AppTab.AI_COACH -> AiCoachScreen(
+                                            profile = activeProfile,
+                                            aiState = state.ai,
+                                            onSendChatMessage = vm::sendChatMessage,
+                                            onClearChatHistory = vm::clearChatHistory,
+                                            onSetLanguage = vm::setAiLanguage,
+                                            onStopAi = vm::stopAiGeneration,
+                                            onDismissError = vm::clearAiError,
                                             onCopyOutput = { txt ->
                                                 copyToClipboard("AI Response", txt, "AI response copied")
                                             }
@@ -480,7 +396,7 @@ private fun StudyTrackerRoot(
                         )
                     }
 
-                    // Profile & Backup full-screen modal sheet
+                    // Profile & Settings full-screen modal sheet
                     if (state.showProfileSheet) {
                         ProfileSheet(
                             profile = activeProfile,
@@ -493,12 +409,7 @@ private fun StudyTrackerRoot(
                             onSaveDetails = vm::updateProfileDetails,
                             onSetThemeMode = vm::setThemeMode,
                             onSaveBackupFile = { saveBackupLauncher.launch("drst-backup-${todayKey()}.json") },
-                            onCopyBackupJson = {
-                                copyToClipboard("DRST Backup", vm.getBackupJson(), "Backup JSON copied")
-                            },
                             onRestoreBackupFile = { restoreBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
-                            onRestoreBackupText = { vm.restoreFromBackupJson(it) },
-                            onExportCsv = { exportCsvLauncher.launch("study-tracker-${todayKey()}.csv") },
                             onLogout = vm::logoutProfile,
                             onDeleteProfile = vm::deleteActiveProfile,
                             onDismiss = { vm.setProfileSheetVisible(false) }

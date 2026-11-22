@@ -575,9 +575,8 @@ fun FloatingTabBar(
 
                     val iconVec = when (tab) {
                         AppTab.CHECKLIST -> if (active) Icons.Rounded.CheckCircle else Icons.Outlined.CheckCircle
-                        AppTab.DASHBOARD -> if (active) Icons.Rounded.Dashboard else Icons.Outlined.Dashboard
-                        AppTab.WEEKLY -> if (active) Icons.Rounded.CalendarMonth else Icons.Outlined.CalendarMonth
                         AppTab.FOCUS -> if (active) Icons.Rounded.Timer else Icons.Outlined.Timer
+                        AppTab.DASHBOARD -> if (active) Icons.Rounded.Dashboard else Icons.Outlined.Dashboard
                         AppTab.AI_COACH -> if (active) Icons.Rounded.AutoAwesome else Icons.Outlined.AutoAwesome
                     }
 

@@ -17,11 +17,12 @@ import com.example.ui.components.UpdateAvailableBanner
 import com.example.ui.screens.AiCoachScreen
 import com.example.ui.screens.ChecklistScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.FocusScreen
 import com.example.ui.screens.MindFocusGameScreen
 import com.example.ui.sheets.ProfileSheet
 import com.example.ui.theme.StudyTrackerTheme
 import com.example.viewmodel.AiCoachUiState
-import com.example.viewmodel.AiHubSection
+import com.example.viewmodel.FocusTimerState
 import com.example.viewmodel.TrackerViewModel
 import org.junit.Assert.*
 import org.junit.Before
@@ -199,7 +200,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun ui_floatingTabBarHasOnly5TabsAndNoGameTab() {
+    fun ui_floatingTabBarHasOnly4TabsAndNoGameTab() {
         var selected = AppTab.CHECKLIST
         composeRule.setContent {
             StudyTrackerTheme(themeMode = "dark") {
@@ -213,27 +214,57 @@ class ExampleRobolectricTest {
         AppTab.entries.forEach { tab ->
             composeRule.onNodeWithTag("tab_${tab.name.lowercase()}").assertIsDisplayed()
         }
-        assertEquals(5, AppTab.entries.size)
+        assertEquals(4, AppTab.entries.size)
         composeRule.onNodeWithTag("open_game_button").assertDoesNotExist()
     }
 
     @Test
-    fun ui_dashboardExposesMindLabGameLauncher() {
+    fun ui_focusExposesMindLabGameLauncher() {
         val sampleProfile = UserProfile(name = "Manav Pandya", bestGameScore = 150, bestGameWave = 2)
         var opened = false
         composeRule.setContent {
             StudyTrackerTheme(themeMode = "dark") {
-                DashboardScreen(
+                FocusScreen(
                     profile = sampleProfile,
-                    selectedDate = todayKey(),
+                    timer = FocusTimerState(),
+                    onSelectSubject = {},
+                    onAddSubject = {},
+                    onRenameSubject = { _, _ -> },
+                    onDeleteSubject = {},
+                    onSetPresetMinutes = {},
+                    onStartOrResume = {},
+                    onPause = {},
+                    onSaveAndStop = {},
+                    onResetTimer = {},
+                    onAddExam = { _, _ -> },
+                    onDeleteExam = {},
                     onOpenGame = { opened = true }
                 )
             }
         }
 
-        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("dashboard_mind_game_card")
-        composeRule.onNodeWithTag("dashboard_play_game_button").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("focus_list").performScrollToKey("mind_lab_card")
+        composeRule.onNodeWithTag("focus_play_mind_lab").assertIsDisplayed().performClick()
         assertTrue(opened)
+    }
+
+    @Test
+    fun ui_progressScreenExposesShareWeeklySummary() {
+        val sampleProfile = UserProfile(name = "Manav Pandya")
+        var shared = false
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                DashboardScreen(
+                    profile = sampleProfile,
+                    selectedDate = todayKey(),
+                    onShareWeeklyReport = { shared = true }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("subject_hours_week_card")
+        composeRule.onNodeWithTag("share_weekly_report_button").assertIsDisplayed().performClick()
+        assertTrue(shared)
     }
 
     @Test
@@ -270,36 +301,11 @@ class ExampleRobolectricTest {
                 AiCoachScreen(
                     profile = sampleProfile,
                     aiState = AiCoachUiState(
-                        activeSection = AiHubSection.TOOLS,
                         errorMessage = "Sample error for test"
                     ),
-                    onSelectSection = {},
-                    onSelectChatMode = {},
                     onSendChatMessage = {},
                     onClearChatHistory = {},
-                    onStartTranscriptRecording = {},
-                    onStopAndTranscribeAudio = {},
-                    onCopyTranscript = {},
-                    onSendTranscriptToChat = {},
-                    onSendTranscriptToQuickAdd = {},
-                    onSaveTranscriptAsDoubt = {},
-                    onToggleVoiceAutoSpeak = {},
-                    onStopVoiceSpeaking = {},
-                    onStartVoiceRecording = {},
-                    onStopVoiceRecordingAndRespond = {},
-                    onClearVoiceConversation = {},
-                    onSelectTool = {},
                     onSetLanguage = {},
-                    onRunWeeklyCoach = {},
-                    onRunBuildRoutine = {},
-                    onApplyPreviewRoutine = {},
-                    onDiscardPreviewRoutine = {},
-                    onUndoAppliedRoutine = {},
-                    onRunQuickAdd = {},
-                    onUndoQuickAdd = {},
-                    onRunExamPlanner = { _, _, _ -> },
-                    onUpdateDoubtDraft = { _, _ -> },
-                    onRunDoubtSolver = { _, _ -> },
                     onStopAi = {},
                     onDismissError = { dismissed = true }
                 )
@@ -377,10 +383,7 @@ class ExampleRobolectricTest {
                     onSaveDetails = { _, _, _, _ -> },
                     onSetThemeMode = {},
                     onSaveBackupFile = {},
-                    onCopyBackupJson = {},
                     onRestoreBackupFile = {},
-                    onRestoreBackupText = {},
-                    onExportCsv = {},
                     onLogout = {},
                     onDeleteProfile = {},
                     onDismiss = {}
