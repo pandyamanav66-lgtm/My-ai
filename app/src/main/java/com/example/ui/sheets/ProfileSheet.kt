@@ -22,6 +22,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
+import com.example.data.AppUpdateService
+import com.example.data.UpdateCheckState
 import com.example.data.UserProfile
 import com.example.ui.components.DrstCard
 import com.example.ui.components.LiquidGlassBackdrop
@@ -34,6 +37,9 @@ import kotlinx.coroutines.delay
 fun ProfileSheet(
     profile: UserProfile,
     themeMode: String,
+    updateState: UpdateCheckState = UpdateCheckState.Idle,
+    onCheckForUpdates: () -> Unit = {},
+    onOpenUpdateUrl: (String) -> Unit = {},
     onSaveDetails: (String, String, String, String) -> Unit,
     onSetThemeMode: (String) -> Unit,
     onSaveBackupFile: () -> Unit,
@@ -105,7 +111,7 @@ fun ProfileSheet(
             }
 
             LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth().testTag("profile_sheet_list"),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -274,7 +280,284 @@ fun ProfileSheet(
                     }
                 }
 
-                // 4. Local Profile Switch & Delete
+                // 4. App Updates (In-Place Update via GitHub Releases)
+                item(key = "app_updates") {
+                    DrstCard {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "APP UPDATES",
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp,
+                                        color = c.muted
+                                    )
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = c.gold.copy(alpha = 0.16f),
+                                    border = BorderStroke(1.dp, c.gold.copy(alpha = 0.55f))
+                                ) {
+                                    Text(
+                                        text = "v${BuildConfig.VERSION_NAME} • #${BuildConfig.VERSION_CODE}",
+                                        style = TextStyle(
+                                            fontFamily = InterFontFamily,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = c.goldInk
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "Check GitHub Releases for newer builds. Updates install directly over your current app without deleting your study data.",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 12.sp,
+                                    color = c.muted,
+                                    lineHeight = 17.sp
+                                )
+                            )
+
+                            when (val st = updateState) {
+                                is UpdateCheckState.Idle -> Unit
+
+                                is UpdateCheckState.Checking -> {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(c.surface2)
+                                            .border(1.dp, c.line, RoundedCornerShape(12.dp))
+                                            .padding(12.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = c.gold
+                                        )
+                                        Text(
+                                            text = "Checking latest release on GitHub...",
+                                            style = TextStyle(
+                                                fontFamily = InterFontFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = c.ink
+                                            )
+                                        )
+                                    }
+                                }
+
+                                is UpdateCheckState.UpToDate -> {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(c.okBg)
+                                            .border(1.dp, c.ok.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                            .padding(12.dp)
+                                            .testTag("update_status_uptodate")
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Verified,
+                                            contentDescription = null,
+                                            tint = c.ok,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "You're up to date!",
+                                                style = TextStyle(
+                                                    fontFamily = SpaceGroteskFontFamily,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    color = c.okInk
+                                                )
+                                            )
+                                            Text(
+                                                text = "Installed v${st.currentVersionName} (Build #${st.currentVersionCode}) • Latest: ${st.latestVersionLabel}",
+                                                style = TextStyle(
+                                                    fontFamily = InterFontFamily,
+                                                    fontSize = 12.sp,
+                                                    color = c.okInk.copy(alpha = 0.85f)
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
+                                is UpdateCheckState.UpdateAvailable -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(c.gold.copy(alpha = 0.14f))
+                                            .border(1.2.dp, c.gold, RoundedCornerShape(14.dp))
+                                            .padding(12.dp)
+                                            .testTag("update_status_available")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.SystemUpdate,
+                                                contentDescription = null,
+                                                tint = c.goldInk,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "New Update Ready: ${st.latestVersionName}",
+                                                    style = TextStyle(
+                                                        fontFamily = SpaceGroteskFontFamily,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = c.ink
+                                                    )
+                                                )
+                                                val meta = listOfNotNull(
+                                                    "Build #${st.latestBuildCode}",
+                                                    st.apkSizeLabel.takeIf { it.isNotBlank() },
+                                                    st.publishedDate.takeIf { it.isNotBlank() }
+                                                ).joinToString(" • ")
+                                                Text(
+                                                    text = meta,
+                                                    style = TextStyle(
+                                                        fontFamily = InterFontFamily,
+                                                        fontSize = 12.sp,
+                                                        color = c.muted
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        Button(
+                                            onClick = { onOpenUpdateUrl(st.apkDownloadUrl) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .testTag("download_update_apk_button"),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = c.gold,
+                                                contentColor = c.band
+                                            )
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Download,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = "Download Update APK",
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+
+                                is UpdateCheckState.Error -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(c.badBg)
+                                            .border(1.dp, c.badInk.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                            .padding(12.dp)
+                                            .testTag("update_status_error")
+                                    ) {
+                                        Text(
+                                            text = st.message,
+                                            style = TextStyle(
+                                                fontFamily = InterFontFamily,
+                                                fontSize = 12.sp,
+                                                color = c.badInk
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = onCheckForUpdates,
+                                    enabled = updateState !is UpdateCheckState.Checking,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("check_updates_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = c.band,
+                                        contentColor = c.onBand
+                                    )
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = if (updateState is UpdateCheckState.Checking) "Checking..." else "Check for Updates",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                val releasesUrl = when (val st = updateState) {
+                                    is UpdateCheckState.UpdateAvailable -> st.releasePageUrl
+                                    is UpdateCheckState.UpToDate -> st.releasePageUrl
+                                    is UpdateCheckState.Error -> st.fallbackReleasesUrl
+                                    else -> "https://github.com/${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}/releases"
+                                }
+                                OutlinedButton(
+                                    onClick = { onOpenUpdateUrl(releasesUrl) },
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .testTag("open_releases_button"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, c.line),
+                                    contentPadding = PaddingValues(horizontal = 14.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.OpenInNew,
+                                        contentDescription = "Open GitHub Releases",
+                                        tint = c.ink,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Releases",
+                                        fontSize = 12.sp,
+                                        color = c.ink,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5. Local Profile Switch & Delete
                 item(key = "account_actions") {
                     DrstCard(title = "Profile Actions") {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

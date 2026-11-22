@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -149,6 +150,12 @@ private fun StudyTrackerRoot(
         )
         runCatching { context.startActivity(waIntent) }
             .onFailure { context.startActivity(fallback) }
+    }
+
+    fun openExternalUrl(url: String) {
+        val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        runCatching { context.startActivity(viewIntent) }
+            .onFailure { vm.showToast("Could not open browser for update link") }
     }
 
     val activeProfile = state.store.activeProfile
@@ -350,6 +357,9 @@ private fun StudyTrackerRoot(
                         ProfileSheet(
                             profile = activeProfile,
                             themeMode = state.store.theme,
+                            updateState = state.updateState,
+                            onCheckForUpdates = vm::checkForAppUpdate,
+                            onOpenUpdateUrl = ::openExternalUrl,
                             onSaveDetails = vm::updateProfileDetails,
                             onSetThemeMode = vm::setThemeMode,
                             onSaveBackupFile = { saveBackupLauncher.launch("drst-backup-${todayKey()}.json") },

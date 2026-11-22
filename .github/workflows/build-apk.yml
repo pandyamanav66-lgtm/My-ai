@@ -65,21 +65,28 @@ jobs:
         with:
           gradle-version: 9.3.1
 
-      - name: Create temporary debug keystore
+      - name: Configure fixed debug keystore
         shell: bash
         run: |
           set -euo pipefail
 
           KEYSTORE_PATH="./debug.keystore"
-          if [[ -f "${KEYSTORE_PATH}" ]]; then
-            echo "Debug keystore already exists at ${KEYSTORE_PATH}; skipping generation."
-          else
-            KEYTOOL_BIN="${JAVA_HOME}/bin/keytool"
-            if [[ ! -x "${KEYTOOL_BIN}" ]]; then
-              echo "::error::keytool not found in configured Java 17 installation (${KEYTOOL_BIN})."
-              exit 1
-            fi
+          KEYSTORE_B64_PATH="./debug.keystore.base64"
+          KEYTOOL_BIN="${JAVA_HOME}/bin/keytool"
+          if [[ ! -x "${KEYTOOL_BIN}" ]]; then
+            echo "::error::keytool not found in configured Java 17 installation (${KEYTOOL_BIN})."
+            exit 1
+          fi
 
+          if [[ -f "${KEYSTORE_PATH}" && -s "${KEYSTORE_PATH}" ]]; then
+            echo "Fixed debug keystore already exists at ${KEYSTORE_PATH}."
+          elif [[ -f "${KEYSTORE_B64_PATH}" && -s "${KEYSTORE_B64_PATH}" ]]; then
+            echo "Restoring fixed project debug keystore from ${KEYSTORE_B64_PATH} for seamless in-place APK updates..."
+            tr -d '\r\n ' < "${KEYSTORE_B64_PATH}" | base64 --decode > "${KEYSTORE_PATH}"
+            "${KEYTOOL_BIN}" -list -keystore "${KEYSTORE_PATH}" -storepass android -alias androiddebugkey >/dev/null
+            echo "Verified fixed project debug keystore successfully."
+          else
+            echo "::warning::${KEYSTORE_B64_PATH} not found; generating a temporary debug keystore (future APKs may require uninstalling before update)."
             "${KEYTOOL_BIN}" -genkeypair \
               -keystore "${KEYSTORE_PATH}" \
               -storepass android \
@@ -96,11 +103,11 @@ jobs:
           fi
 
           if [[ ! -f "${KEYSTORE_PATH}" || ! -s "${KEYSTORE_PATH}" ]]; then
-            echo "::error::Temporary debug keystore is missing or empty after generation."
+            echo "::error::Debug keystore is missing or empty after setup."
             exit 1
           fi
 
-          echo "Temporary debug keystore is ready."
+          echo "Debug keystore is ready."
 
       - name: Configure Firebase google-services.json
         id: configure_firebase
@@ -257,7 +264,7 @@ jobs:
           fi
 
           RELEASE_TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-          RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
+          RELEASE_TITLE="Study Tracker v1.0.${GITHUB_RUN_NUMBER}"
 
           {
             echo "asset_path=${ASSET_PATH}"
@@ -293,17 +300,16 @@ jobs:
           fi
 
           RELEASE_NOTES="$(cat <<EOF
-          This is an automatically generated debug APK built by GitHub Actions.
+          Automatically built Study Tracker APK (version **1.0.${GITHUB_RUN_NUMBER}**, build **#${GITHUB_RUN_NUMBER}**).
 
           - **Workflow Run Number:** ${GITHUB_RUN_NUMBER}
           - **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}
           - **Source Commit SHA:** ${GITHUB_SHA}
           - **APK Asset:** \`${ASSET_NAME}\`
 
-          ### Important Notes
-          - This APK is intended for testing only.
-          - This APK is **not** a Play Store production release.
-          - This APK is signed only with a temporary debug keystore generated on the runner.
+          ### Update Notes
+          - Signed with the fixed project debug keystore so future builds update directly over the installed app without uninstalling or losing your study data.
+          - If upgrading from an older temporary-key APK, uninstall once and install this APK — all subsequent releases will update in-place.
           EOF
           )"
 

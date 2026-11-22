@@ -108,6 +108,7 @@ data class TrackerUiState(
     val showGameOverlay: Boolean = false,
     val timer: FocusTimerState = FocusTimerState(),
     val ai: AiCoachUiState = AiCoachUiState(),
+    val updateState: UpdateCheckState = UpdateCheckState.Idle,
     val confettiBurstId: Int = 0,
     val toastMessage: String? = null
 )
@@ -115,8 +116,10 @@ data class TrackerUiState(
 class TrackerViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = DrstRepository(application)
     private val aiService = AiCoachService()
+    private val appUpdateService = AppUpdateService()
     private val audioRecorder = AudioRecorderHelper(application)
 
+    private var updateCheckJob: Job? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -1396,6 +1399,26 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     fun getWeeklyReportText(): String {
         val p = _uiState.value.store.activeProfile ?: return ""
         return repo.buildWeeklyReportText(p, _uiState.value.weeklyStartMonday)
+    }
+
+    // ---- In-App GitHub Update Checker ----
+
+    fun checkForAppUpdate() {
+        updateCheckJob?.cancel()
+        _uiState.update { it.copy(updateState = UpdateCheckState.Checking) }
+        updateCheckJob = viewModelScope.launch {
+            val result = appUpdateService.checkLatestRelease()
+            _uiState.update { it.copy(updateState = result) }
+            when (result) {
+                is UpdateCheckState.UpdateAvailable ->
+                    showToast("Update available: ${result.latestVersionName}")
+                is UpdateCheckState.UpToDate ->
+                    showToast("You're on the latest version (${result.currentVersionName})")
+                is UpdateCheckState.Error ->
+                    showToast("Update check failed — you can open Releases directly")
+                else -> Unit
+            }
+        }
     }
 
     // ---- Helpers ----

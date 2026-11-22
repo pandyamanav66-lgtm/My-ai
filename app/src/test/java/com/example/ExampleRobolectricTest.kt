@@ -14,6 +14,7 @@ import com.example.ui.components.FloatingTabBar
 import com.example.ui.components.HeaderBand
 import com.example.ui.screens.AiCoachScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.sheets.ProfileSheet
 import com.example.ui.theme.StudyTrackerTheme
 import com.example.viewmodel.AiCoachUiState
 import com.example.viewmodel.AiHubSection
@@ -279,5 +280,86 @@ class ExampleRobolectricTest {
         composeRule.onNodeWithTag("ai_error_banner").assertIsDisplayed()
         composeRule.onNodeWithTag("ai_error_dismiss").performClick()
         assertTrue(dismissed)
+    }
+
+    @Test
+    fun appUpdateService_detectsNewerReleaseAndUpToDate() {
+        val svc = AppUpdateService()
+        val releaseJson = """
+            {
+              "tag_name": "debug-apk-build-14-1",
+              "name": "Study Tracker v1.0.14",
+              "html_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/tag/debug-apk-build-14-1",
+              "published_at": "2026-11-22T06:00:00Z",
+              "assets": [
+                {
+                  "name": "my-tracker-debug-build-14.apk",
+                  "size": 19400000,
+                  "browser_download_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/download/debug-apk-build-14-1/my-tracker-debug-build-14.apk"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        // Installed build #10 -> Update Available (#14)
+        val avail = svc.parseReleaseJson(releaseJson, currentVersionCode = 10, currentVersionName = "1.0.10")
+        assertTrue(avail is UpdateCheckState.UpdateAvailable)
+        val update = avail as UpdateCheckState.UpdateAvailable
+        assertEquals(14, update.latestBuildCode)
+        assertEquals("Study Tracker v1.0.14", update.latestVersionName)
+        assertTrue(update.apkDownloadUrl.endsWith(".apk"))
+        assertEquals("2026-11-22", update.publishedDate)
+        assertTrue(update.apkSizeLabel.contains("MB"))
+
+        // Installed build #14 -> Up To Date
+        val current = svc.parseReleaseJson(releaseJson, currentVersionCode = 14, currentVersionName = "1.0.14")
+        assertTrue(current is UpdateCheckState.UpToDate)
+    }
+
+    @Test
+    fun ui_profileSheetDisplaysUpdateCardAndDownloadAction() {
+        val sampleProfile = UserProfile(name = "Manav Pandya")
+        var checked = false
+        var openedUrl: String? = null
+        val availableState = UpdateCheckState.UpdateAvailable(
+            currentVersionName = "1.0.10",
+            currentVersionCode = 10,
+            latestVersionName = "Study Tracker v1.0.14",
+            latestBuildCode = 14,
+            apkDownloadUrl = "https://github.com/pandyamanav66-lgtm/my-tracker/releases/download/v14/app.apk",
+            releasePageUrl = "https://github.com/pandyamanav66-lgtm/my-tracker/releases",
+            apkSizeLabel = "18.5 MB",
+            publishedDate = "2026-11-22"
+        )
+
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                ProfileSheet(
+                    profile = sampleProfile,
+                    themeMode = "dark",
+                    updateState = availableState,
+                    onCheckForUpdates = { checked = true },
+                    onOpenUpdateUrl = { openedUrl = it },
+                    onSaveDetails = { _, _, _, _ -> },
+                    onSetThemeMode = {},
+                    onSaveBackupFile = {},
+                    onCopyBackupJson = {},
+                    onRestoreBackupFile = {},
+                    onRestoreBackupText = {},
+                    onExportCsv = {},
+                    onLogout = {},
+                    onDeleteProfile = {},
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("profile_sheet_list").performScrollToKey("app_updates")
+        composeRule.onNodeWithTag("update_status_available").assertIsDisplayed()
+        composeRule.onNodeWithTag("download_update_apk_button").assertIsDisplayed().performClick()
+        assertEquals(availableState.apkDownloadUrl, openedUrl)
+
+        composeRule.onNodeWithTag("check_updates_button").assertIsDisplayed().performClick()
+        assertTrue(checked)
     }
 }
