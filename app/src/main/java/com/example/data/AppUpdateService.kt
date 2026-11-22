@@ -3,6 +3,7 @@ package com.example.data
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -43,63 +44,123 @@ class AppUpdateService(
     val releasesPageUrl: String
         get() = "https://github.com/$repoOwner/$repoName/releases"
 
-    private val latestReleaseApiUrl: String
-        get() = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
+    private val repoApiUrl: String
+        get() = "https://api.github.com/repos/$repoOwner/$repoName"
 
-    suspend fun checkLatestRelease(
-        currentVersionCode: Int = BuildConfig.VERSION_CODE,
-        currentVersionName: String = BuildConfig.VERSION_NAME
-    ): UpdateCheckState = withContext(Dispatchers.IO) {
+    private val latestReleaseApiUrl: String
+        get() = "$repoApiUrl/releases/latest"
+
+    private val releasesListApiUrl: String
+        get() = "$repoApiUrl/releases?per_page=5"
+
+    private fun fetchUrl(urlStr: String, currentVersionName: String): Pair<Int, String> {
         var conn: HttpURLConnection? = null
-        try {
-            conn = (URL(latestReleaseApiUrl).openConnection() as HttpURLConnection).apply {
+        return try {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
                 readTimeout = 12_000
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "StudyTracker-Android/$currentVersionName")
             }
-
             val code = conn.responseCode
-            if (code == HttpURLConnection.HTTP_OK) {
-                val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                parseReleaseJson(
-                    jsonBody = body,
-                    currentVersionCode = currentVersionCode,
-                    currentVersionName = currentVersionName
-                )
-            } else if (code == HttpURLConnection.HTTP_NOT_FOUND) {
-                UpdateCheckState.Error(
-                    message = "No published GitHub Release found yet. Push an update to GitHub first or open Releases directly.",
-                    fallbackReleasesUrl = releasesPageUrl
-                )
-            } else if (code == 403 || code == 429) {
-                UpdateCheckState.Error(
-                    message = "GitHub rate limit reached. Tap below to open the Releases page directly.",
-                    fallbackReleasesUrl = releasesPageUrl
-                )
-            } else {
-                UpdateCheckState.Error(
-                    message = "Could not check updates right now (HTTP $code).",
-                    fallbackReleasesUrl = releasesPageUrl
-                )
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            code to body
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    suspend fun checkLatestRelease(
+        currentVersionCode: Int = BuildConfig.VERSION_CODE,
+        currentVersionName: String = BuildConfig.VERSION_NAME
+    ): UpdateCheckState = withContext(Dispatchers.IO) {
+        try {
+            val (code, body) = fetchUrl(latestReleaseApiUrl, currentVersionName)
+            when {
+                code == HttpURLConnection.HTTP_OK -> {
+                    parseReleaseJson(
+                        jsonBody = body,
+                        currentVersionCode = currentVersionCode,
+                        currentVersionName = currentVersionName
+                    )
+                }
+
+                code == HttpURLConnection.HTTP_NOT_FOUND -> {
+                    // Fallback 1: check /releases list (catches pre-releases or non-'latest' releases)
+                    val (listCode, listBody) = fetchUrl(releasesListApiUrl, currentVersionName)
+                    if (listCode == HttpURLConnection.HTTP_OK) {
+                        val parsed = parseReleasesArrayJson(
+                            jsonArrayBody = listBody,
+                            currentVersionCode = currentVersionCode,
+                            currentVersionName = currentVersionName
+                        )
+                        if (parsed != null) return@withContext parsed
+                    }
+
+                    // Fallback 2: check if the repository itself is Private (returns 404 to unauthenticated API)
+                    val (repoCode, _) = fetchUrl(repoApiUrl, currentVersionName)
+                    if (repoCode == HttpURLConnection.HTTP_NOT_FOUND) {
+                        UpdateCheckState.Error(
+                            message = "Your GitHub repo is Private, so automatic checking is blocked. Tap 'Releases' below to download the latest APK directly from GitHub, or make the repo Public for 1-tap auto-checks.",
+                            fallbackReleasesUrl = releasesPageUrl
+                        )
+                    } else {
+                        UpdateCheckState.Error(
+                            message = "No published GitHub Release found yet. Push an update & wait 2–3 mins, or tap 'Releases' below to download directly.",
+                            fallbackReleasesUrl = releasesPageUrl
+                        )
+                    }
+                }
+
+                code == 403 || code == 429 -> {
+                    UpdateCheckState.Error(
+                        message = "GitHub rate limit reached. Tap 'Releases' below to open the Releases page directly.",
+                        fallbackReleasesUrl = releasesPageUrl
+                    )
+                }
+
+                else -> {
+                    UpdateCheckState.Error(
+                        message = "Could not check updates right now (HTTP $code).",
+                        fallbackReleasesUrl = releasesPageUrl
+                    )
+                }
             }
         } catch (e: Exception) {
             UpdateCheckState.Error(
                 message = "Unable to reach GitHub. Check your internet connection and retry.",
                 fallbackReleasesUrl = releasesPageUrl
             )
-        } finally {
-            conn?.disconnect()
         }
+    }
+
+    internal fun parseReleasesArrayJson(
+        jsonArrayBody: String,
+        currentVersionCode: Int,
+        currentVersionName: String
+    ): UpdateCheckState? {
+        val arr = JSONArray(jsonArrayBody)
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            if (obj.optBoolean("draft", false)) continue
+            return parseReleaseObject(obj, currentVersionCode, currentVersionName)
+        }
+        return null
     }
 
     internal fun parseReleaseJson(
         jsonBody: String,
         currentVersionCode: Int,
         currentVersionName: String
+    ): UpdateCheckState = parseReleaseObject(JSONObject(jsonBody), currentVersionCode, currentVersionName)
+
+    private fun parseReleaseObject(
+        json: JSONObject,
+        currentVersionCode: Int,
+        currentVersionName: String
     ): UpdateCheckState {
-        val json = JSONObject(jsonBody)
         val tagName = json.optString("tag_name", "").trim()
         val releaseName = json.optString("name", "").trim()
         val htmlUrl = json.optString("html_url", releasesPageUrl).ifBlank { releasesPageUrl }

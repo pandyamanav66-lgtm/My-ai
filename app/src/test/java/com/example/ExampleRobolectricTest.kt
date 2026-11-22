@@ -342,6 +342,11 @@ class ExampleRobolectricTest {
         // Installed build #14 -> Up To Date
         val current = svc.parseReleaseJson(releaseJson, currentVersionCode = 14, currentVersionName = "1.0.14")
         assertTrue(current is UpdateCheckState.UpToDate)
+
+        // Fallback array parsing (e.g. non-latest or pre-release list)
+        val arrayRes = svc.parseReleasesArrayJson("[$releaseJson]", currentVersionCode = 6, currentVersionName = "1.0.6")
+        assertTrue(arrayRes is UpdateCheckState.UpdateAvailable)
+        assertEquals(14, (arrayRes as UpdateCheckState.UpdateAvailable).latestBuildCode)
     }
 
     @Test
