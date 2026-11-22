@@ -53,7 +53,11 @@ class AppUpdateService(
     private val releasesListApiUrl: String
         get() = "$repoApiUrl/releases?per_page=5"
 
-    private fun fetchUrl(urlStr: String, currentVersionName: String): Pair<Int, String> {
+    private fun fetchUrl(
+        urlStr: String,
+        currentVersionName: String,
+        authToken: String? = null
+    ): Pair<Int, String> {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
@@ -62,6 +66,9 @@ class AppUpdateService(
                 readTimeout = 12_000
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "StudyTracker-Android/$currentVersionName")
+                if (!authToken.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer ${authToken.trim()}")
+                }
             }
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
@@ -74,10 +81,12 @@ class AppUpdateService(
 
     suspend fun checkLatestRelease(
         currentVersionCode: Int = BuildConfig.VERSION_CODE,
-        currentVersionName: String = BuildConfig.VERSION_NAME
+        currentVersionName: String = BuildConfig.VERSION_NAME,
+        authToken: String? = null
     ): UpdateCheckState = withContext(Dispatchers.IO) {
         try {
-            val (code, body) = fetchUrl(latestReleaseApiUrl, currentVersionName)
+            val cleanToken = authToken?.trim()?.takeIf { it.isNotEmpty() }
+            val (code, body) = fetchUrl(latestReleaseApiUrl, currentVersionName, cleanToken)
             when {
                 code == HttpURLConnection.HTTP_OK -> {
                     parseReleaseJson(
@@ -87,9 +96,16 @@ class AppUpdateService(
                     )
                 }
 
+                code == HttpURLConnection.HTTP_UNAUTHORIZED -> {
+                    UpdateCheckState.Error(
+                        message = "Saved GitHub token was rejected (401). Clear it or paste a valid read-only token.",
+                        fallbackReleasesUrl = releasesPageUrl
+                    )
+                }
+
                 code == HttpURLConnection.HTTP_NOT_FOUND -> {
                     // Fallback 1: check /releases list (catches pre-releases or non-'latest' releases)
-                    val (listCode, listBody) = fetchUrl(releasesListApiUrl, currentVersionName)
+                    val (listCode, listBody) = fetchUrl(releasesListApiUrl, currentVersionName, cleanToken)
                     if (listCode == HttpURLConnection.HTTP_OK) {
                         val parsed = parseReleasesArrayJson(
                             jsonArrayBody = listBody,
@@ -100,15 +116,15 @@ class AppUpdateService(
                     }
 
                     // Fallback 2: check if the repository itself is Private (returns 404 to unauthenticated API)
-                    val (repoCode, _) = fetchUrl(repoApiUrl, currentVersionName)
+                    val (repoCode, _) = fetchUrl(repoApiUrl, currentVersionName, cleanToken)
                     if (repoCode == HttpURLConnection.HTTP_NOT_FOUND) {
                         UpdateCheckState.Error(
-                            message = "Your GitHub repo is Private, so automatic checking is blocked. Tap 'Releases' below to download the latest APK directly from GitHub, or make the repo Public for 1-tap auto-checks.",
+                            message = "Your GitHub repo is Private, so automatic checking is blocked. Make the repo Public (recommended) or save a GitHub token below — or tap 'Releases' directly.",
                             fallbackReleasesUrl = releasesPageUrl
                         )
                     } else {
                         UpdateCheckState.Error(
-                            message = "No published GitHub Release found yet. Push an update & wait 2–3 mins, or tap 'Releases' below to download directly.",
+                            message = "No published GitHub Release found yet. Push an update & wait 2–3 mins, or tap 'Releases' below.",
                             fallbackReleasesUrl = releasesPageUrl
                         )
                     }

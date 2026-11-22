@@ -109,6 +109,8 @@ data class TrackerUiState(
     val timer: FocusTimerState = FocusTimerState(),
     val ai: AiCoachUiState = AiCoachUiState(),
     val updateState: UpdateCheckState = UpdateCheckState.Idle,
+    val updateBannerDismissed: Boolean = false,
+    val hasSavedGitHubToken: Boolean = false,
     val confettiBurstId: Int = 0,
     val toastMessage: String? = null
 )
@@ -136,6 +138,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         val loaded = repo.loadStore()
         val active = loaded.activeProfile
         val defaultSubject = active?.subjects?.firstOrNull() ?: "Maths"
+        val savedToken = UpdateNotificationHelper.getSavedGitHubToken(application)
         _uiState.update {
             it.copy(
                 store = loaded,
@@ -146,8 +149,14 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 ai = it.ai.copy(
                     chatMessages = active?.chatHistory.orEmpty(),
                     doubtSubject = defaultSubject
-                )
+                ),
+                hasSavedGitHubToken = savedToken.isNotBlank()
             )
+        }
+        // Automatically check GitHub Releases in the background on startup (non-blocking)
+        viewModelScope.launch {
+            delay(1800L)
+            checkForAppUpdate(silent = true)
         }
     }
 
@@ -1401,23 +1410,55 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         return repo.buildWeeklyReportText(p, _uiState.value.weeklyStartMonday)
     }
 
-    // ---- In-App GitHub Update Checker ----
+    // ---- In-App GitHub Update Checker & Notification ----
 
-    fun checkForAppUpdate() {
+    fun checkForAppUpdate(silent: Boolean = false) {
         updateCheckJob?.cancel()
-        _uiState.update { it.copy(updateState = UpdateCheckState.Checking) }
+        if (!silent) {
+            _uiState.update { it.copy(updateState = UpdateCheckState.Checking) }
+        }
         updateCheckJob = viewModelScope.launch {
-            val result = appUpdateService.checkLatestRelease()
-            _uiState.update { it.copy(updateState = result) }
+            val token = UpdateNotificationHelper.getSavedGitHubToken(getApplication())
+            val result = appUpdateService.checkLatestRelease(authToken = token)
+            if (silent && result !is UpdateCheckState.UpdateAvailable) {
+                // Keep UI quiet on silent startup checks when offline or already up to date
+                return@launch
+            }
+            _uiState.update {
+                it.copy(
+                    updateState = result,
+                    updateBannerDismissed = if (result is UpdateCheckState.UpdateAvailable) false else it.updateBannerDismissed
+                )
+            }
             when (result) {
-                is UpdateCheckState.UpdateAvailable ->
-                    showToast("Update available: ${result.latestVersionName}")
-                is UpdateCheckState.UpToDate ->
-                    showToast("You're on the latest version (${result.currentVersionName})")
-                is UpdateCheckState.Error ->
-                    showToast("Update check failed — you can open Releases directly")
+                is UpdateCheckState.UpdateAvailable -> {
+                    UpdateNotificationHelper.notifyUpdateAvailable(getApplication(), result)
+                    if (!silent) {
+                        showToast("Update available: ${result.latestVersionName}")
+                    }
+                }
+                is UpdateCheckState.UpToDate -> {
+                    if (!silent) showToast("You're on the latest version (${result.currentVersionName})")
+                }
+                is UpdateCheckState.Error -> {
+                    if (!silent) showToast("Update check failed — check Profile > App Updates")
+                }
                 else -> Unit
             }
+        }
+    }
+
+    fun dismissUpdateBanner() {
+        _uiState.update { it.copy(updateBannerDismissed = true) }
+    }
+
+    fun saveGitHubUpdateToken(token: String) {
+        val clean = token.trim()
+        UpdateNotificationHelper.saveGitHubToken(getApplication(), clean)
+        _uiState.update { it.copy(hasSavedGitHubToken = clean.isNotBlank()) }
+        showToast(if (clean.isNotBlank()) "GitHub token saved — checking updates..." else "GitHub token cleared")
+        if (clean.isNotBlank()) {
+            checkForAppUpdate(silent = false)
         }
     }
 

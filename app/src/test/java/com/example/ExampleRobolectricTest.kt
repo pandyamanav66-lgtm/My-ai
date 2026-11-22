@@ -13,6 +13,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.*
 import com.example.ui.components.FloatingTabBar
 import com.example.ui.components.HeaderBand
+import com.example.ui.components.UpdateAvailableBanner
 import com.example.ui.screens.AiCoachScreen
 import com.example.ui.screens.ChecklistScreen
 import com.example.ui.screens.DashboardScreen
@@ -424,5 +425,28 @@ class ExampleRobolectricTest {
         composeRule.onNodeWithTag("checklist_list").performScrollToKey("list_header")
         composeRule.onNodeWithTag("filter_study").assertIsDisplayed().performClick()
         assertEquals(ChecklistFilter.STUDY, activeFilter)
+    }
+
+    @Test
+    fun ui_updateAvailableBannerTriggersDownloadAndDismiss() {
+        var downloaded = false
+        var dismissed = false
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                UpdateAvailableBanner(
+                    versionName = "Study Tracker v1.0.15",
+                    buildCode = 15,
+                    sizeLabel = "19.2 MB",
+                    onDownloadClick = { downloaded = true },
+                    onDismiss = { dismissed = true }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("in_app_update_banner").assertIsDisplayed()
+        composeRule.onNodeWithTag("banner_download_update_button").performClick()
+        assertTrue(downloaded)
+        composeRule.onNodeWithTag("banner_dismiss_update_button").performClick()
+        assertTrue(dismissed)
     }
 }

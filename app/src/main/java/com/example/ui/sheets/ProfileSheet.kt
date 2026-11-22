@@ -38,8 +38,10 @@ fun ProfileSheet(
     profile: UserProfile,
     themeMode: String,
     updateState: UpdateCheckState = UpdateCheckState.Idle,
+    hasSavedGitHubToken: Boolean = false,
     onCheckForUpdates: () -> Unit = {},
     onOpenUpdateUrl: (String) -> Unit = {},
+    onSaveGitHubToken: (String) -> Unit = {},
     onSaveDetails: (String, String, String, String) -> Unit,
     onSetThemeMode: (String) -> Unit,
     onSaveBackupFile: () -> Unit,
@@ -61,6 +63,8 @@ fun ProfileSheet(
 
     var showPasteRestore by remember { mutableStateOf(false) }
     var pasteJson by remember { mutableStateOf("") }
+    var showTokenBox by remember { mutableStateOf(false) }
+    var tokenDraft by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(confirmDelete) {
@@ -558,6 +562,70 @@ fun ProfileSheet(
                                         color = c.ink,
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                }
+                            }
+
+                            // Optional Private Repo Token (only needed if user keeps GitHub repo Private)
+                            TextButton(
+                                onClick = { showTokenBox = !showTokenBox },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                                modifier = Modifier.testTag("toggle_github_token_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Key,
+                                    contentDescription = null,
+                                    tint = c.muted,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (hasSavedGitHubToken) "Private Repo Token: Saved (tap to change)"
+                                    else "Using Private GitHub repo? Add token (optional)",
+                                    fontSize = 11.sp,
+                                    color = c.muted,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            AnimatedVisibility(visible = showTokenBox) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = tokenDraft,
+                                        onValueChange = { tokenDraft = it },
+                                        placeholder = { Text("Paste read-only GitHub token (ghp_...)", fontSize = 12.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth().testTag("github_token_input"),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                onSaveGitHubToken(tokenDraft)
+                                                tokenDraft = ""
+                                                showTokenBox = false
+                                            },
+                                            enabled = tokenDraft.isNotBlank(),
+                                            modifier = Modifier.weight(1f).height(42.dp),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = c.ok, contentColor = c.surface)
+                                        ) {
+                                            Text("Save & Check", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                        if (hasSavedGitHubToken) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onSaveGitHubToken("")
+                                                    tokenDraft = ""
+                                                    showTokenBox = false
+                                                },
+                                                modifier = Modifier.height(42.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, c.line)
+                                            ) {
+                                                Text("Clear", color = c.badInk, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

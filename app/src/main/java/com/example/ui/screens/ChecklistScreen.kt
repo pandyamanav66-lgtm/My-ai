@@ -27,10 +27,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -259,13 +259,6 @@ fun ChecklistScreen(
                 val isNowDone = currentNowTask.id in dayLog.completedIds
                 val slotSpan = (currentNowTask.endMinutes - currentNowTask.startMinutes).coerceAtLeast(1)
                 val slotFrac = ((nowMinute - currentNowTask.startMinutes).toFloat() / slotSpan).coerceIn(0f, 1f)
-                val pulse = rememberInfiniteTransition(label = "now_dot")
-                val dotAlpha by pulse.animateFloat(
-                    initialValue = 0.35f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-                    label = "now_dot_alpha"
-                )
                 val nowShape = RoundedCornerShape(24.dp)
 
                 Box(
@@ -305,13 +298,7 @@ fun ChecklistScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .alpha(dotAlpha)
-                                            .clip(CircleShape)
-                                            .background(c.prismCyan)
-                                    )
+                                    PulsingLiveDot(color = c.prismCyan)
                                     Text(
                                         text = "LIVE NOW",
                                         style = TextStyle(
@@ -895,4 +882,22 @@ private fun TaskRowItem(
             }
         }
     }
+}
+
+@Composable
+private fun PulsingLiveDot(color: Color) {
+    val pulse = rememberInfiniteTransition(label = "now_dot")
+    val dotAlpha = pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "now_dot_alpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(6.dp)
+            .graphicsLayer { alpha = dotAlpha.value }
+            .clip(CircleShape)
+            .background(color)
+    )
 }

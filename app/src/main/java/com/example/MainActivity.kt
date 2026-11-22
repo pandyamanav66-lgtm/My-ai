@@ -1,11 +1,14 @@
 package com.example
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -14,9 +17,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -24,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.*
@@ -32,6 +41,7 @@ import com.example.ui.components.FloatingTabBar
 import com.example.ui.components.HeaderBand
 import com.example.ui.components.LiquidGlassBackdrop
 import com.example.ui.components.ToastBanner
+import com.example.ui.components.UpdateAvailableBanner
 import com.example.ui.components.backdropBlurIfSupported
 import com.example.ui.screens.*
 import com.example.ui.sheets.EditRoutineSheet
@@ -41,13 +51,24 @@ import com.example.viewmodel.TrackerUiState
 import com.example.viewmodel.TrackerViewModel
 
 class MainActivity : ComponentActivity() {
+    private val openUpdateTrigger = mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // STEP 1: Configure Firebase App Check with launch intent BEFORE UI or ViewModels (for Firebase AI Logic)
         configureAppCheck(this, intent)
 
-        // STEP 2: Enable edge-to-edge full bleed
+        // STEP 2: Unlock native high refresh rate (90Hz / 120Hz) on OEM Android displays
+        enableHighRefreshRate()
+
+        // STEP 3: Ensure update notification channel exists
+        UpdateNotificationHelper.ensureChannel(this)
+        if (intent?.getBooleanExtra(UpdateNotificationHelper.EXTRA_OPEN_UPDATE, false) == true) {
+            openUpdateTrigger.intValue++
+        }
+
+        // STEP 4: Enable edge-to-edge full bleed
         enableEdgeToEdge()
 
         setContent {
@@ -58,6 +79,14 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 "light" -> false
                 else -> sysDark
+            }
+
+            val triggerCount by openUpdateTrigger
+            LaunchedEffect(triggerCount) {
+                if (triggerCount > 0) {
+                    vm.setProfileSheetVisible(true)
+                    vm.checkForAppUpdate(silent = false)
+                }
             }
 
             SideEffect {
@@ -73,6 +102,36 @@ class MainActivity : ComponentActivity() {
 
             StudyTrackerTheme(themeMode = state.store.theme) {
                 StudyTrackerRoot(vm = vm, state = state)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(UpdateNotificationHelper.EXTRA_OPEN_UPDATE, false)) {
+            openUpdateTrigger.intValue++
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableHighRefreshRate() {
+        runCatching {
+            val activeDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                windowManager.defaultDisplay
+            } ?: return
+            val currentMode = activeDisplay.mode
+            val bestMode = activeDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+            if (bestMode != null && bestMode.refreshRate > currentMode.refreshRate) {
+                val lp = window.attributes
+                lp.preferredDisplayModeId = bestMode.modeId
+                window.attributes = lp
             }
         }
     }
@@ -224,10 +283,27 @@ private fun StudyTrackerRoot(
                 val isRestDay = activeProfile.days[state.selectedDate]?.isRestDay == true
                 val anyModalOpen = state.showEditRoutineSheet || state.showProfileSheet || state.showGameOverlay
                 val modalBackdropBlur by animateDpAsState(
-                    targetValue = if (anyModalOpen) 18.dp else 0.dp,
-                    animationSpec = tween(durationMillis = 220),
+                    targetValue = if (anyModalOpen) 14.dp else 0.dp,
+                    animationSpec = tween(durationMillis = 140),
                     label = "modal_backdrop_blur"
                 )
+
+                // Request Android 13+ notification permission once cleanly so new-update alerts can notify the user
+                val notifPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { /* handled gracefully; in-app banner still works even if denied */ }
+
+                LaunchedEffect(activeProfile.id) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
 
                 LiquidGlassBackdrop {
                     Column(
@@ -247,6 +323,23 @@ private fun StudyTrackerRoot(
                             onOpenEditRoutine = { vm.setEditRoutineSheetVisible(true) },
                             onOpenProfile = { vm.setProfileSheetVisible(true) }
                         )
+
+                        val availableUpdate = state.updateState as? UpdateCheckState.UpdateAvailable
+                        AnimatedVisibility(
+                            visible = availableUpdate != null && !state.updateBannerDismissed,
+                            enter = fadeIn(tween(180)) + expandVertically(),
+                            exit = fadeOut(tween(150)) + shrinkVertically()
+                        ) {
+                            if (availableUpdate != null) {
+                                UpdateAvailableBanner(
+                                    versionName = availableUpdate.latestVersionName,
+                                    buildCode = availableUpdate.latestBuildCode,
+                                    sizeLabel = availableUpdate.apkSizeLabel,
+                                    onDownloadClick = { openExternalUrl(availableUpdate.apkDownloadUrl) },
+                                    onDismiss = vm::dismissUpdateBanner
+                                )
+                            }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -393,8 +486,10 @@ private fun StudyTrackerRoot(
                             profile = activeProfile,
                             themeMode = state.store.theme,
                             updateState = state.updateState,
-                            onCheckForUpdates = vm::checkForAppUpdate,
+                            hasSavedGitHubToken = state.hasSavedGitHubToken,
+                            onCheckForUpdates = { vm.checkForAppUpdate(silent = false) },
                             onOpenUpdateUrl = ::openExternalUrl,
+                            onSaveGitHubToken = vm::saveGitHubUpdateToken,
                             onSaveDetails = vm::updateProfileDetails,
                             onSetThemeMode = vm::setThemeMode,
                             onSaveBackupFile = { saveBackupLauncher.launch("drst-backup-${todayKey()}.json") },

@@ -879,11 +879,6 @@ private fun ManageSubjectsDialog(
                     shape
                 )
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .backdropBlurIfSupported(16.dp)
-            )
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
