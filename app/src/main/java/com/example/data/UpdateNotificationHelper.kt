@@ -69,9 +69,15 @@ object UpdateNotificationHelper {
 
     fun getSavedRepoSlug(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_GITHUB_REPO, "").orEmpty().trim().ifBlank {
-            "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}"
+        val saved = prefs.getString(KEY_GITHUB_REPO, "").orEmpty().trim()
+        val defaultSlug = "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}"
+        if (saved.isBlank() || saved.equals("pandyamanav66-lgtm/my-tracker", ignoreCase = true)) {
+            if (saved.isNotBlank()) {
+                prefs.edit().putString(KEY_GITHUB_REPO, defaultSlug).apply()
+            }
+            return defaultSlug
         }
+        return saved
     }
 
     fun saveRepoSlug(context: Context, repoSlug: String) {

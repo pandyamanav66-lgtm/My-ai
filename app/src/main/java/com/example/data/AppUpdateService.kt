@@ -330,6 +330,6 @@ class AppUpdateService(
 
     companion object {
         const val DEFAULT_REPO_OWNER = "pandyamanav66-lgtm"
-        const val DEFAULT_REPO_NAME = "my-tracker"
+        const val DEFAULT_REPO_NAME = "my-ai"
     }
 }

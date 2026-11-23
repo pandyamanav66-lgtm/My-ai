@@ -71,15 +71,18 @@ fun AiCoachScreen(
     LaunchedEffect(aiState.chatMessages.size, aiState.streamingChatReply.length) {
         val count = aiState.chatMessages.size + (if (aiState.isChatStreaming) 1 else 0)
         if (count > 0) {
-            listState.animateScrollToItem(count)
+            listState.animateScrollToItem((count - 1).coerceAtLeast(0))
         }
     }
+
+    val isImeVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .padding(horizontal = 16.dp)
-            .padding(top = 8.dp, bottom = 98.dp),
+            .padding(top = 8.dp, bottom = if (isImeVisible) 10.dp else 98.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // Compact Liquid Glass AI Coach Header

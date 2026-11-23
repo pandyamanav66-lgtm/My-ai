@@ -28,29 +28,19 @@ import kotlin.coroutines.resumeWithException
 private const val TAG = "AiCoachService"
 private const val DEFAULT_MODEL = "gemini-3.8-flash"
 private const val FAST_LITE_MODEL = "gemini-3.5-flash-lite"
-private const val APP_CHECK_TIMEOUT_MS = 20_000L
-private const val FIRST_CHUNK_WATCHDOG_MS = 16_000L
-private const val UNARY_PRIMARY_TIMEOUT_MS = 26_000L
+private const val APP_CHECK_WARMUP_TIMEOUT_MS = 4_000L
+private const val FIRST_CHUNK_WATCHDOG_MS = 20_000L
+private const val UNARY_PRIMARY_TIMEOUT_MS = 28_000L
 private const val AI_TIMEOUT_MS = 60_000L
 
 class AiCoachService {
 
     private val streamModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = DEFAULT_MODEL,
-            generationConfig = generationConfig {
-                maxOutputTokens = 1400
-            }
-        )
+        Firebase.ai.generativeModel(modelName = DEFAULT_MODEL)
     }
 
     private val fastLiteModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = FAST_LITE_MODEL,
-            generationConfig = generationConfig {
-                maxOutputTokens = 1200
-            }
-        )
+        Firebase.ai.generativeModel(modelName = FAST_LITE_MODEL)
     }
 
     private val quickAddSchema = Schema.obj(
@@ -129,50 +119,40 @@ class AiCoachService {
     }
 
     /**
-     * Preflight App Check attestation with a bounded timeout so hangs or attestation failures
-     * surface immediately instead of leaving the UI spinning indefinitely.
+     * Best-effort, non-blocking App Check token warm-up.
+     * Never throws to hard-block Gemini requests — Firebase.ai attaches App Check tokens natively
+     * and will surface the authentic server response if attestation is actually enforced/rejected.
      */
-    private suspend fun ensureAppCheckReady() {
+    private suspend fun warmAppCheckBestEffort() {
         try {
-            withTimeout(APP_CHECK_TIMEOUT_MS) {
+            withTimeout(APP_CHECK_WARMUP_TIMEOUT_MS) {
                 suspendCancellableCoroutine<Unit> { cont ->
                     FirebaseAppCheck.getInstance()
                         .getAppCheckToken(false)
-                        .addOnSuccessListener { token ->
-                            if (cont.isActive) {
-                                if (token.token.isNullOrBlank()) {
-                                    cont.resumeWithException(
-                                        IllegalStateException("App Check returned an empty attestation token.")
-                                    )
-                                } else {
-                                    cont.resume(Unit)
-                                }
-                            }
+                        .addOnSuccessListener {
+                            if (cont.isActive) cont.resume(Unit)
                         }
                         .addOnFailureListener { exc ->
-                            if (cont.isActive) cont.resumeWithException(exc)
+                            Log.w(TAG, "Best-effort App Check pre-warm warning: ${exc.localizedMessage}")
+                            if (cont.isActive) cont.resume(Unit)
                         }
                 }
             }
-        } catch (t: TimeoutCancellationException) {
-            throw IllegalStateException(
-                "App Check verification timed out (20s). Check internet/Google Play Services and retry.",
-                t
-            )
         } catch (ce: CancellationException) {
-            throw ce
+            if (ce is TimeoutCancellationException) {
+                Log.w(TAG, "Best-effort App Check pre-warm timed out; proceeding with Firebase.ai directly.")
+            } else {
+                throw ce
+            }
         } catch (e: Exception) {
-            throw IllegalStateException(
-                "App Check verification failed: ${e.localizedMessage ?: e.javaClass.simpleName}",
-                e
-            )
+            Log.w(TAG, "Best-effort App Check pre-warm skipped: ${e.localizedMessage}")
         }
     }
 
     /**
-     * Resilient streaming pipeline with a 16-second first-chunk watchdog:
+     * Resilient streaming pipeline with a 20-second first-chunk watchdog:
      * - Streams smoothly from the primary model when chunks flow normally.
-     * - If SSE streaming stalls on mobile carriers or the primary model takes >16s before
+     * - If SSE streaming stalls on mobile carriers or the primary model takes >20s before
      *   emitting its first token (or throws a transient error before outputting text),
      *   cancels the stalled stream and immediately executes a fast unary fallback call on
      *   gemini-3.5-flash-lite within the 60-second total budget.
@@ -181,7 +161,7 @@ class AiCoachService {
         primaryStream: () -> Flow<GenerateContentResponse>,
         fallbackUnary: suspend () -> GenerateContentResponse
     ): Flow<String> = channelFlow {
-        ensureAppCheckReady()
+        warmAppCheckBestEffort()
 
         var receivedAnyChunk = false
         var primaryFailed: Throwable? = null
@@ -244,7 +224,7 @@ class AiCoachService {
         primaryCall: suspend () -> GenerateContentResponse,
         fallbackCall: suspend () -> GenerateContentResponse
     ): GenerateContentResponse = withContext(Dispatchers.IO) {
-        ensureAppCheckReady()
+        warmAppCheckBestEffort()
         withTimeout(AI_TIMEOUT_MS) {
             try {
                 withTimeout(UNARY_PRIMARY_TIMEOUT_MS) {
@@ -308,23 +288,18 @@ class AiCoachService {
             AiChatMode.FAST -> "Keep answers ultra-crisp, punchy, and under 5 short bullet points."
             AiChatMode.BALANCED -> "Give balanced, encouraging, practical study advice with crisp formatting."
         }
-        val tokenCap = when (mode) {
-            AiChatMode.FAST -> 600
-            AiChatMode.BALANCED -> 1100
-            AiChatMode.DEEP -> 1800
-        }
 
         val sysPrompt = """
-            You are an expert personal Study Mentor & Routine Coach inside "Daily Routine & Study Tracker" (by Manav Pandya).
+            You are an expert personal Study Mentor & Routine Coach inside "Study Tracker".
             Always reply in ${profile.aiLanguage}.
             $depthHint
             Student context:
             - Name: ${profile.name}
+            - Target exam: ${profile.customDetails.ifBlank { "General studies" }}
             - Daily study goal: ${profile.dailyStudyGoalHours} h (Logged today: ${String.format(Locale.US, "%.1f", todayStudy)} h)
             - Current 75%+ streak: $streak days
             - Subjects: ${profile.subjects.joinToString(", ")}
             - Upcoming exams: $examsText
-            - Open doubts: ${profile.doubts.count { !it.solved }}
         """.trimIndent()
 
         val recentHistory = buildValidChatHistory(history)
@@ -333,7 +308,6 @@ class AiCoachService {
             primaryStream = {
                 val chatModel = Firebase.ai.generativeModel(
                     modelName = mode.modelName,
-                    generationConfig = generationConfig { maxOutputTokens = tokenCap },
                     systemInstruction = content { text(sysPrompt) }
                 )
                 chatModel.startChat(history = recentHistory).sendMessageStream(userMessage)
@@ -341,10 +315,16 @@ class AiCoachService {
             fallbackUnary = {
                 val liteModel = Firebase.ai.generativeModel(
                     modelName = FAST_LITE_MODEL,
-                    generationConfig = generationConfig { maxOutputTokens = tokenCap },
                     systemInstruction = content { text(sysPrompt) }
                 )
-                liteModel.startChat(history = recentHistory).sendMessage(userMessage)
+                try {
+                    liteModel.startChat(history = recentHistory).sendMessage(userMessage)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (chatErr: Exception) {
+                    Log.w(TAG, "Lite chat with history failed (${chatErr.localizedMessage}); retrying single-turn.", chatErr)
+                    liteModel.generateContent(userMessage)
+                }
             }
         )
     }

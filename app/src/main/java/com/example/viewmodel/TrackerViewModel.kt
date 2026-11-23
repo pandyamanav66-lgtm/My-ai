@@ -828,7 +828,13 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     }
                 } else {
                     _uiState.update {
-                        it.copy(ai = it.ai.copy(isChatStreaming = false, streamingChatReply = ""))
+                        it.copy(
+                            ai = it.ai.copy(
+                                isChatStreaming = false,
+                                streamingChatReply = "",
+                                errorMessage = "AI didn't return a reply. Check your internet connection and try sending again."
+                            )
+                        )
                     }
                 }
             } catch (t: TimeoutCancellationException) {

@@ -320,17 +320,23 @@ class ExampleRobolectricTest {
     @Test
     fun appUpdateService_detectsNewerReleaseAndUpToDate() {
         val svc = AppUpdateService()
+        assertEquals("pandyamanav66-lgtm/my-ai", svc.defaultRepoSlug)
+
+        // Legacy saved my-tracker slug auto-migrates to my-ai
+        UpdateNotificationHelper.saveRepoSlug(app, "pandyamanav66-lgtm/my-tracker")
+        assertEquals("pandyamanav66-lgtm/my-ai", UpdateNotificationHelper.getSavedRepoSlug(app))
+
         val releaseJson = """
             {
               "tag_name": "debug-apk-build-14-1",
               "name": "Study Tracker v1.0.14",
-              "html_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/tag/debug-apk-build-14-1",
+              "html_url": "https://github.com/pandyamanav66-lgtm/my-ai/releases/tag/debug-apk-build-14-1",
               "published_at": "2026-11-22T06:00:00Z",
               "assets": [
                 {
-                  "name": "my-tracker-debug-build-14.apk",
+                  "name": "my-ai-debug-build-14.apk",
                   "size": 19400000,
-                  "browser_download_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/download/debug-apk-build-14-1/my-tracker-debug-build-14.apk"
+                  "browser_download_url": "https://github.com/pandyamanav66-lgtm/my-ai/releases/download/debug-apk-build-14-1/my-ai-debug-build-14.apk"
                 }
               ]
             }
@@ -355,7 +361,7 @@ class ExampleRobolectricTest {
             {
               "tag_name": "debug-apk-build-9-1",
               "name": "Study Tracker v1.0.9",
-              "html_url": "https://github.com/pandyamanav66-lgtm/my-tracker/releases/tag/debug-apk-build-9-1",
+              "html_url": "https://github.com/pandyamanav66-lgtm/my-ai/releases/tag/debug-apk-build-9-1",
               "published_at": "2026-11-20T06:00:00Z",
               "assets": []
             }
@@ -378,8 +384,8 @@ class ExampleRobolectricTest {
             currentVersionCode = 10,
             latestVersionName = "Study Tracker v1.0.14",
             latestBuildCode = 14,
-            apkDownloadUrl = "https://github.com/pandyamanav66-lgtm/my-tracker/releases/download/v14/app.apk",
-            releasePageUrl = "https://github.com/pandyamanav66-lgtm/my-tracker/releases",
+            apkDownloadUrl = "https://github.com/pandyamanav66-lgtm/my-ai/releases/download/v14/app.apk",
+            releasePageUrl = "https://github.com/pandyamanav66-lgtm/my-ai/releases",
             apkSizeLabel = "18.5 MB",
             publishedDate = "2026-11-22"
         )
