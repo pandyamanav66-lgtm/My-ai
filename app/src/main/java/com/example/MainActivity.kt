@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
@@ -17,6 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -53,6 +56,9 @@ import com.example.ui.sheets.ProfileSheet
 import com.example.ui.theme.StudyTrackerTheme
 import com.example.viewmodel.TrackerUiState
 import com.example.viewmodel.TrackerViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val openUpdateTrigger = mutableIntStateOf(0)
@@ -148,6 +154,25 @@ private fun StudyTrackerRoot(
     state: TrackerUiState
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Zero-permission Android Photo Picker for AI Coach Photo Doubt Solver
+    val pickDoubtPhotoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val bmp = decodeScaledBitmap(context, uri, maxDim = 1280)
+                withContext(Dispatchers.Main) {
+                    if (bmp != null) {
+                        vm.setAttachedPhoto(bmp)
+                    } else {
+                        vm.showToast("Could not read selected photo")
+                    }
+                }
+            }
+        }
+    }
 
     // SAF zero-permission file export & import launchers
     val saveBackupLauncher = rememberLauncherForActivityResult(
@@ -220,7 +245,7 @@ private fun StudyTrackerRoot(
             state.showNewProfilePrompt -> {
                 NamePromptScreen(
                     isCreatingAdditional = state.store.profiles.isNotEmpty(),
-                    onCreateProfile = { vm.createProfile(it) },
+                    onCreateProfile = { name, preset -> vm.createProfile(name, preset) },
                     onCancel = if (state.store.profiles.isNotEmpty()) {
                         { vm.setNewProfilePromptVisible(false) }
                     } else null
@@ -230,7 +255,7 @@ private fun StudyTrackerRoot(
             activeProfile == null && state.store.profiles.isEmpty() -> {
                 NamePromptScreen(
                     isCreatingAdditional = false,
-                    onCreateProfile = { vm.createProfile(it) }
+                    onCreateProfile = { name, preset -> vm.createProfile(name, preset) }
                 )
             }
 
@@ -375,7 +400,8 @@ private fun StudyTrackerRoot(
                                             onUpdateNote = vm::updateTaskNote,
                                             onAdjustStudyGoal = vm::adjustStudyGoal,
                                             onToggleRestDay = vm::toggleRestDay,
-                                            onResetDay = vm::resetCurrentDay
+                                            onResetDay = vm::resetCurrentDay,
+                                            onFocusTask = vm::startFocusForTask
                                         )
 
                                         AppTab.FOCUS -> FocusScreen(
@@ -392,7 +418,8 @@ private fun StudyTrackerRoot(
                                             onResetTimer = vm::resetTimerState,
                                             onAddExam = vm::addExam,
                                             onDeleteExam = vm::deleteExam,
-                                            onOpenGame = { vm.setGameOverlayVisible(true) }
+                                            onOpenGame = { vm.setGameOverlayVisible(true) },
+                                            onSelectSoundMode = vm::setFocusSoundMode
                                         )
 
                                         AppTab.DASHBOARD -> DashboardScreen(
@@ -411,7 +438,13 @@ private fun StudyTrackerRoot(
                                             onDismissError = vm::clearAiError,
                                             onCopyOutput = { txt ->
                                                 copyToClipboard("AI Response", txt, "AI response copied")
-                                            }
+                                            },
+                                            onPickPhoto = {
+                                                pickDoubtPhotoLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            },
+                                            onClearPhoto = { vm.setAttachedPhoto(null) }
                                         )
                                     }
                                 }
@@ -485,4 +518,38 @@ private fun StudyTrackerRoot(
                 .padding(top = 12.dp, start = 16.dp, end = 16.dp)
         )
     }
+}
+
+private fun decodeScaledBitmap(context: Context, uri: Uri, maxDim: Int): Bitmap? {
+    return runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        val origW = bounds.outWidth
+        val origH = bounds.outHeight
+        if (origW <= 0 || origH <= 0) return@runCatching null
+
+        var sampleSize = 1
+        while ((origW / sampleSize) > maxDim * 2 || (origH / sampleSize) > maxDim * 2) {
+            sampleSize *= 2
+        }
+
+        val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val decoded = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOpts)
+        } ?: return@runCatching null
+
+        val maxSide = maxOf(decoded.width, decoded.height)
+        if (maxSide <= maxDim) {
+            decoded
+        } else {
+            val scale = maxDim.toFloat() / maxSide.toFloat()
+            val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(decoded, targetW, targetH, true).also {
+                if (it !== decoded) decoded.recycle()
+            }
+        }
+    }.getOrNull()
 }

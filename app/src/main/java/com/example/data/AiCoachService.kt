@@ -1,5 +1,6 @@
 package com.example.data
 
+import android.graphics.Bitmap
 import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
@@ -325,6 +326,48 @@ class AiCoachService {
                     Log.w(TAG, "Lite chat with history failed (${chatErr.localizedMessage}); retrying single-turn.", chatErr)
                     liteModel.generateContent(userMessage)
                 }
+            }
+        )
+    }
+
+    // 1b. Multimodal Photo Doubt Solver (Image Bitmap + Prompt -> Step-by-step solution)
+    fun streamPhotoDoubtReply(
+        profile: UserProfile,
+        bitmap: Bitmap,
+        userPrompt: String
+    ): Flow<String> {
+        val cleanPrompt = userPrompt.trim().ifBlank {
+            "Read the question or notes in this image carefully and solve or explain it step-by-step."
+        }
+        val sysPrompt = """
+            You are an expert personal Study Tutor inside "Study Tracker".
+            Always reply in ${profile.aiLanguage}.
+            When a student uploads a photo of a question, equation, diagram, or textbook page:
+            1. Clearly state what the question/topic is.
+            2. Solve or explain it cleanly step-by-step with formulas and crisp formatting.
+            3. Highlight one common mistake to avoid or a quick exam tip.
+            Student target exam: ${profile.customDetails.ifBlank { "General studies" }}.
+        """.trimIndent()
+
+        val multimodalContent = content {
+            image(bitmap)
+            text(cleanPrompt)
+        }
+
+        return streamWithFastFallback(
+            primaryStream = {
+                val visionModel = Firebase.ai.generativeModel(
+                    modelName = DEFAULT_MODEL,
+                    systemInstruction = content { text(sysPrompt) }
+                )
+                visionModel.generateContentStream(multimodalContent)
+            },
+            fallbackUnary = {
+                val liteVisionModel = Firebase.ai.generativeModel(
+                    modelName = FAST_LITE_MODEL,
+                    systemInstruction = content { text(sysPrompt) }
+                )
+                liteVisionModel.generateContent(multimodalContent)
             }
         )
     }

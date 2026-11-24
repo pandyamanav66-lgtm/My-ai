@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -64,7 +65,8 @@ fun FocusScreen(
     onResetTimer: () -> Unit,
     onAddExam: (String, String) -> Unit,
     onDeleteExam: (String) -> Unit,
-    onOpenGame: () -> Unit
+    onOpenGame: () -> Unit,
+    onSelectSoundMode: (FocusSoundMode) -> Unit = {}
 ) {
     val c = LocalDrstColors.current
     val context = LocalContext.current
@@ -292,6 +294,101 @@ fun FocusScreen(
                             border = BorderStroke(1.dp, c.line)
                         ) {
                             Icon(Icons.Rounded.Refresh, contentDescription = "Reset timer", tint = c.ink)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                // Offline Focus Soundscape Pill Bar (auto-plays with timer)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Headphones,
+                                contentDescription = null,
+                                tint = if (timer.soundMode != FocusSoundMode.OFF) c.prismCyan else c.muted,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "Focus Soundscape",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = c.muted
+                                )
+                            )
+                        }
+                        if (timer.soundMode != FocusSoundMode.OFF) {
+                            Text(
+                                text = if (timer.isRunning) "Playing • Offline" else "Plays on Start",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
+                                    color = c.prismCyan
+                                )
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FocusSoundMode.entries.forEach { mode ->
+                            val active = timer.soundMode == mode
+                            val pillShape = RoundedCornerShape(12.dp)
+                            val icon = when (mode) {
+                                FocusSoundMode.OFF -> Icons.Rounded.VolumeOff
+                                FocusSoundMode.RAIN -> Icons.Rounded.WaterDrop
+                                FocusSoundMode.BROWN_NOISE -> Icons.Rounded.GraphicEq
+                                FocusSoundMode.LOFI_PAD -> Icons.Rounded.MusicNote
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(pillShape)
+                                    .background(
+                                        if (active) c.prismCyan.copy(alpha = if (c.isDark) 0.22f else 0.16f)
+                                        else c.surface2
+                                    )
+                                    .border(
+                                        width = if (active) 1.2.dp else 1.dp,
+                                        color = if (active) c.prismCyan else c.line,
+                                        shape = pillShape
+                                    )
+                                    .clickable { onSelectSoundMode(mode) }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp)
+                                    .testTag("sound_mode_${mode.name.lowercase()}"),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = mode.label,
+                                    tint = if (active) (if (c.isDark) c.prismCyan else c.band) else c.muted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = mode.label,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 11.sp,
+                                        color = if (active) c.ink else c.muted
+                                    )
+                                )
+                            }
                         }
                     }
                 }

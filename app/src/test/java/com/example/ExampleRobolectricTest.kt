@@ -2,13 +2,16 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.*
 import com.example.ui.components.FloatingTabBar
@@ -19,6 +22,7 @@ import com.example.ui.screens.ChecklistScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.FocusScreen
 import com.example.ui.screens.MindFocusGameScreen
+import com.example.ui.screens.NamePromptScreen
 import com.example.ui.sheets.ProfileSheet
 import com.example.ui.theme.StudyTrackerTheme
 import com.example.viewmodel.AiCoachUiState
@@ -469,5 +473,175 @@ class ExampleRobolectricTest {
         assertTrue(downloaded)
         composeRule.onNodeWithTag("banner_dismiss_update_button").performClick()
         assertTrue(dismissed)
+    }
+
+    @Test
+    fun viewModel_presetsSoundscapesAndQuickFocusJump_workProperly() {
+        val vm = TrackerViewModel(app)
+
+        vm.createProfile("Aarav", RoutinePreset.MINIMAL)
+        val minimal = vm.uiState.value.store.activeProfile!!
+        assertEquals(6, minimal.routine.size)
+        assertEquals(4.0, minimal.dailyStudyGoalHours, 0.01)
+
+        vm.createProfile("Diya", RoutinePreset.COLLEGE)
+        val college = vm.uiState.value.store.activeProfile!!
+        assertEquals(9, college.routine.size)
+        assertEquals(5.0, college.dailyStudyGoalHours, 0.01)
+
+        vm.createProfile("Kabir", RoutinePreset.EXAM_PREP)
+        val exam = vm.uiState.value.store.activeProfile!!
+        assertEquals(12, exam.routine.size)
+        assertEquals(7.0, exam.dailyStudyGoalHours, 0.01)
+
+        // Focus Soundscape selection
+        vm.setFocusSoundMode(FocusSoundMode.RAIN)
+        assertEquals(FocusSoundMode.RAIN, vm.uiState.value.timer.soundMode)
+        vm.setFocusSoundMode(FocusSoundMode.OFF)
+        assertEquals(FocusSoundMode.OFF, vm.uiState.value.timer.soundMode)
+
+        // Quick Focus Jump from study task switches to Focus tab with subject synced
+        val studyTask = exam.routine.first { it.isStudyTask && it.subject.isNotBlank() }
+        vm.startFocusForTask(studyTask)
+        assertEquals(AppTab.FOCUS, vm.uiState.value.selectedTab)
+        assertEquals(studyTask.subject, vm.uiState.value.timer.selectedSubject)
+
+        // Photo attachment state lifecycle
+        val bmp = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        vm.setAttachedPhoto(bmp)
+        assertNotNull(vm.uiState.value.ai.attachedPhotoBitmap)
+        vm.setAttachedPhoto(null)
+        assertNull(vm.uiState.value.ai.attachedPhotoBitmap)
+    }
+
+    @Test
+    fun ui_onboardingShows3RoutinePresetsAndSubmitsSelection() {
+        var submittedName = ""
+        var submittedPreset: RoutinePreset? = null
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                NamePromptScreen(
+                    isCreatingAdditional = false,
+                    onCreateProfile = { name, preset ->
+                        submittedName = name
+                        submittedPreset = preset
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("preset_option_minimal").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("preset_option_college").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("preset_option_exam_prep").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("onboarding_name_input").performScrollTo().performTextInput("Manav")
+        composeRule.onNodeWithTag("onboarding_continue_button").performScrollTo().performClick()
+
+        assertEquals("Manav", submittedName)
+        assertEquals(RoutinePreset.COLLEGE, submittedPreset)
+    }
+
+    @Test
+    fun ui_focusSoundscapePillsUpdateSelection() {
+        val sampleProfile = UserProfile(name = "Manav Pandya")
+        var pickedMode = FocusSoundMode.OFF
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                FocusScreen(
+                    profile = sampleProfile,
+                    timer = FocusTimerState(soundMode = pickedMode),
+                    onSelectSubject = {},
+                    onAddSubject = {},
+                    onRenameSubject = { _, _ -> },
+                    onDeleteSubject = {},
+                    onSetPresetMinutes = {},
+                    onStartOrResume = {},
+                    onPause = {},
+                    onSaveAndStop = {},
+                    onResetTimer = {},
+                    onAddExam = { _, _ -> },
+                    onDeleteExam = {},
+                    onOpenGame = {},
+                    onSelectSoundMode = { pickedMode = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("sound_mode_rain").performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(FocusSoundMode.RAIN, pickedMode)
+    }
+
+    @Test
+    fun ui_dashboardShows30DayStreakHeatmap() {
+        val sampleProfile = UserProfile(name = "Manav Pandya")
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                DashboardScreen(
+                    profile = sampleProfile,
+                    selectedDate = todayKey()
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("dashboard_list").performScrollToKey("streak_heatmap_card")
+        composeRule.onNodeWithTag("streak_heatmap_grid").assertIsDisplayed()
+    }
+
+    @Test
+    fun ui_aiCoachPhotoDoubtButtonAndAttachmentPreview() {
+        val sampleProfile = UserProfile(name = "Manav Pandya")
+        val bmp = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        var picked = false
+        var cleared = false
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                AiCoachScreen(
+                    profile = sampleProfile,
+                    aiState = AiCoachUiState(attachedPhotoBitmap = bmp),
+                    onSendChatMessage = {},
+                    onClearChatHistory = {},
+                    onSetLanguage = {},
+                    onStopAi = {},
+                    onPickPhoto = { picked = true },
+                    onClearPhoto = { cleared = true }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("ai_pick_photo_button").assertIsDisplayed().performClick()
+        assertTrue(picked)
+        composeRule.onNodeWithTag("ai_send_button").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("ai_clear_photo_button").assertIsDisplayed().performClick()
+        assertTrue(cleared)
+    }
+
+    @Test
+    fun ui_checklistQuickFocusJumpAndRestDayInHero() {
+        val sampleProfile = UserProfile(name = "Manav Pandya", routine = routineForPreset(RoutinePreset.MINIMAL))
+        var restToggled = false
+        var focusedTask: RoutineTask? = null
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                ChecklistScreen(
+                    profile = sampleProfile,
+                    selectedDate = todayKey(),
+                    filter = ChecklistFilter.ALL,
+                    onSelectFilter = {},
+                    onToggleTask = {},
+                    onUpdateNote = { _, _ -> },
+                    onAdjustStudyGoal = {},
+                    onToggleRestDay = { restToggled = true },
+                    onResetDay = {},
+                    onFocusTask = { focusedTask = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("rest_day_button").assertIsDisplayed().performClick()
+        assertTrue(restToggled)
+
+        val studyTask = sampleProfile.routine.first { it.isStudyTask }
+        composeRule.onNodeWithTag("checklist_list").performScrollToKey(studyTask.id)
+        composeRule.onNodeWithTag("task_focus_${studyTask.id}").assertIsDisplayed().performClick()
+        assertEquals(studyTask.id, focusedTask?.id)
     }
 }

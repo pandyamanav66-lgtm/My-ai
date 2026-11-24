@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,9 +29,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -59,7 +69,8 @@ fun ChecklistScreen(
     onUpdateNote: (String, String) -> Unit,
     onAdjustStudyGoal: (Double) -> Unit,
     onToggleRestDay: () -> Unit,
-    onResetDay: () -> Unit
+    onResetDay: () -> Unit,
+    onFocusTask: (RoutineTask) -> Unit = {}
 ) {
     val c = LocalDrstColors.current
     val dayLog = profile.days[selectedDate] ?: DayLog()
@@ -124,23 +135,23 @@ fun ChecklistScreen(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 114.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Unified Minimal Hero Progress + Study Goal Liquid Glass Card
+        // 1. Compact Unified Hero Progress + Study Goal + Rest Day Liquid Glass Card
         item(key = "hero_card") {
             DrstCard {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     CompletionRing(
                         percent = pct,
-                        size = 114.dp,
-                        strokeWidth = 10.dp
+                        size = 100.dp,
+                        strokeWidth = 9.dp
                     )
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = Analytics.motivationalLine(pct, dayLog.isRestDay, studyHrs, goal),
@@ -149,8 +160,8 @@ fun ChecklistScreen(
                             style = TextStyle(
                                 fontFamily = SpaceGroteskFontFamily,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                lineHeight = 20.sp,
+                                fontSize = 14.sp,
+                                lineHeight = 19.sp,
                                 color = c.ink
                             )
                         )
@@ -172,9 +183,9 @@ fun ChecklistScreen(
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
 
-                // Integrated sleek Daily Study Goal bar with clean +/- controls
+                // Integrated sleek Daily Study Goal bar + Rest Day pill
                 val goalTrackShape = RoundedCornerShape(16.dp)
                 Column(
                     modifier = Modifier
@@ -182,7 +193,7 @@ fun ChecklistScreen(
                         .clip(goalTrackShape)
                         .background(if (c.isDark) Color(0x17FFFFFF) else Color(0x99F3F7FF))
                         .border(1.dp, c.line, goalTrackShape)
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -196,7 +207,7 @@ fun ChecklistScreen(
                                     fontFamily = InterFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
-                                    letterSpacing = 0.9.sp,
+                                    letterSpacing = 0.8.sp,
                                     color = if (goalReached) c.goldInk else c.muted
                                 )
                             )
@@ -205,13 +216,43 @@ fun ChecklistScreen(
                                 style = TextStyle(
                                     fontFamily = SpaceGroteskFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.sp,
                                     color = c.ink,
                                     fontFeatureSettings = "tnum"
                                 )
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(
+                                        if (dayLog.isRestDay) c.prismViolet.copy(alpha = 0.25f)
+                                        else if (c.isDark) Color(0x20FFFFFF) else Color(0xD9FFFFFF)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (dayLog.isRestDay) c.prismViolet else c.glassBorderTop.copy(alpha = 0.65f),
+                                        RoundedCornerShape(99.dp)
+                                    )
+                                    .clickable(onClick = onToggleRestDay)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .testTag("rest_day_button")
+                            ) {
+                                Text(
+                                    text = if (dayLog.isRestDay) "Rest ✓" else "Rest Day",
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (dayLog.isRestDay) c.prismViolet else c.ink
+                                    )
+                                )
+                            }
                             GlassStepperButton(
                                 icon = Icons.Rounded.Remove,
                                 contentDescription = "Decrease study goal 0.5h",
@@ -227,12 +268,12 @@ fun ChecklistScreen(
                         }
                     }
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(7.dp))
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(8.dp)
+                            .height(7.dp)
                             .clip(RoundedCornerShape(99.dp))
                             .background(c.track)
                     ) {
@@ -558,38 +599,29 @@ fun ChecklistScreen(
                     onToggleNote = {
                         expandedNoteIds = if (noteExpanded) expandedNoteIds - task.id else expandedNoteIds + task.id
                     },
-                    onNoteChange = { onUpdateNote(task.id, it) }
+                    onNoteChange = { onUpdateNote(task.id, it) },
+                    onFocusTask = { onFocusTask(task) }
                 )
             }
         }
 
-        // 6. Clean Footer Actions: Rest Day + Reset Day
+        // 6. Clean Footer: Swipe Hint + Reset Day
         item(key = "footer_actions") {
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    onClick = onToggleRestDay,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("rest_day_button"),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, if (dayLog.isRestDay) c.prismViolet else c.glassBorderTop.copy(alpha = 0.55f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (dayLog.isRestDay) c.prismViolet.copy(alpha = 0.22f) else c.glassFill,
-                        contentColor = c.ink
+                Text(
+                    text = "Tip: Swipe right on any task to toggle",
+                    modifier = Modifier.weight(1f).padding(end = 10.dp),
+                    style = TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        color = c.muted
                     )
-                ) {
-                    Text(
-                        text = if (dayLog.isRestDay) "Unmark rest day" else "Mark rest day",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    )
-                }
+                )
 
                 Button(
                     onClick = {
@@ -601,15 +633,15 @@ fun ChecklistScreen(
                         }
                     },
                     modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
+                        .height(44.dp)
                         .testTag("reset_day_button"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (confirmReset) c.badBg else c.glassFill,
                         contentColor = if (confirmReset) c.badInk else c.muted
                     ),
-                    border = BorderStroke(1.dp, if (confirmReset) c.badInk.copy(alpha = 0.55f) else c.line)
+                    border = BorderStroke(1.dp, if (confirmReset) c.badInk.copy(alpha = 0.55f) else c.line),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
                 ) {
                     Text(
                         text = if (confirmReset) "Tap to confirm" else "Reset day",
@@ -690,6 +722,7 @@ private fun MiniStatPill(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskRowItem(
     task: RoutineTask,
@@ -699,9 +732,11 @@ private fun TaskRowItem(
     noteExpanded: Boolean,
     onToggleDone: () -> Unit,
     onToggleNote: () -> Unit,
-    onNoteChange: (String) -> Unit
+    onNoteChange: (String) -> Unit,
+    onFocusTask: () -> Unit
 ) {
     val c = LocalDrstColors.current
+    val haptic = LocalHapticFeedback.current
     val catColor = categoryColor(task.category)
     val shape = RoundedCornerShape(22.dp)
 
@@ -724,163 +759,289 @@ private fun TaskRowItem(
         label = "task_card_border"
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(cardBg)
-            .border(
-                width = if (isNow) 1.6.dp else 1.dp,
-                color = borderColor,
-                shape = shape
-            )
-            .testTag("task_row_${task.id}")
-    ) {
-        Column(modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 11.dp, bottom = 11.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Sleek vertical category color glow accent bar
-                Box(
+    val currentToggleDone by rememberUpdatedState(onToggleDone)
+    val swipeState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                currentToggleDone()
+            }
+            false // Snap smoothly back into place after toggling
+        }
+    )
+
+    val barAccent = if (isDone) c.ok else catColor
+
+    SwipeToDismissBox(
+        state = swipeState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            if (swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
+                Row(
                     modifier = Modifier
-                        .width(4.dp)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(if (isDone) c.ok else catColor)
-                )
-
-                AnimatedTaskCheckbox(
-                    checked = isDone,
-                    borderColor = catColor,
-                    onToggle = onToggleDone,
-                    modifier = Modifier.testTag("task_cb_${task.id}")
-                )
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "${formatTime12h(task.start)} – ${formatTime12h(task.end)}",
-                            style = TextStyle(
-                                fontFamily = InterFontFamily,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 11.sp,
-                                color = if (isDone) c.okInk else c.muted,
-                                fontFeatureSettings = "tnum"
-                            )
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(99.dp))
-                                .background((if (isDone) c.ok else catColor).copy(alpha = 0.16f))
-                                .padding(horizontal = 6.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = formatDuration(task.durationMinutes),
-                                style = TextStyle(
-                                    fontFamily = SpaceGroteskFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = if (isDone) c.okInk else catColor
+                        .fillMaxSize()
+                        .clip(shape)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    barAccent.copy(alpha = 0.24f),
+                                    barAccent.copy(alpha = 0.04f)
                                 )
                             )
-                        }
-                        if (isNow) {
+                        )
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardDoubleArrowRight,
+                        contentDescription = null,
+                        tint = barAccent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize())
+            }
+        }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(cardBg)
+                .border(
+                    width = if (isNow) 1.6.dp else 1.dp,
+                    color = borderColor,
+                    shape = shape
+                )
+                .testTag("task_row_${task.id}")
+        ) {
+            Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 11.dp, bottom = 11.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Colored arrow-shaped category swipe bar (hints swipe right to toggle)
+                    SwipeArrowBar(
+                        color = barAccent,
+                        modifier = Modifier.testTag("task_swipe_bar_${task.id}")
+                    )
+
+                    AnimatedTaskCheckbox(
+                        checked = isDone,
+                        borderColor = catColor,
+                        onToggle = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onToggleDone()
+                        },
+                        modifier = Modifier.testTag("task_cb_${task.id}")
+                    )
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "${formatTime12h(task.start)} – ${formatTime12h(task.end)}",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp,
+                                    color = if (isDone) c.okInk else c.muted,
+                                    fontFeatureSettings = "tnum"
+                                )
+                            )
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(99.dp))
-                                    .background(c.prismCyan)
+                                    .background((if (isDone) c.ok else catColor).copy(alpha = 0.16f))
                                     .padding(horizontal = 6.dp, vertical = 1.dp)
                             ) {
                                 Text(
-                                    text = "NOW",
+                                    text = formatDuration(task.durationMinutes),
                                     style = TextStyle(
                                         fontFamily = SpaceGroteskFontFamily,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 9.sp,
-                                        color = Color(0xFF061322)
+                                        fontSize = 10.sp,
+                                        color = if (isDone) c.okInk else catColor
                                     )
                                 )
                             }
+                            if (isNow) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(99.dp))
+                                        .background(c.prismCyan)
+                                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "NOW",
+                                        style = TextStyle(
+                                            fontFamily = SpaceGroteskFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF061322)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(3.dp))
+
+                        Text(
+                            text = task.title,
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = c.ink.copy(alpha = if (isDone) 0.65f else 1f),
+                                textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+                            )
+                        )
+
+                        Spacer(Modifier.height(3.dp))
+
+                        Text(
+                            text = if (task.subject.isNotBlank()) "${task.category} • ${task.subject}" else task.category,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                fontFamily = InterFontFamily,
+                                fontSize = 11.sp,
+                                color = c.muted
+                            )
+                        )
+                    }
+
+                    // Quick Focus Jump pill button for incomplete study tasks
+                    if (task.isStudyTask && !isDone) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(c.prismCyan.copy(alpha = 0.16f))
+                                .border(1.dp, c.prismCyan.copy(alpha = 0.45f), CircleShape)
+                                .clickable(onClick = onFocusTask)
+                                .testTag("task_focus_${task.id}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "Start focus timer for ${task.title}",
+                                tint = if (c.isDark) c.prismCyan else c.band,
+                                modifier = Modifier.size(19.dp)
+                            )
                         }
                     }
 
-                    Spacer(Modifier.height(3.dp))
-
-                    Text(
-                        text = task.title,
-                        style = TextStyle(
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = c.ink.copy(alpha = if (isDone) 0.65f else 1f),
-                            textDecoration = if (isDone) TextDecoration.LineThrough else TextDecoration.None
+                    // Minimal Note button with gold dot indicator
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (note.isNotBlank()) c.gold.copy(alpha = 0.16f) else Color.Transparent)
+                            .clickable(onClick = onToggleNote),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Description,
+                            contentDescription = "Task note",
+                            tint = if (note.isNotBlank()) c.gold else c.muted,
+                            modifier = Modifier.size(18.dp)
                         )
-                    )
-
-                    Spacer(Modifier.height(3.dp))
-
-                    Text(
-                        text = if (task.subject.isNotBlank()) "${task.category} • ${task.subject}" else task.category,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            fontFamily = InterFontFamily,
-                            fontSize = 11.sp,
-                            color = c.muted
-                        )
-                    )
-                }
-
-                // Minimal Note button with gold dot indicator
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(if (note.isNotBlank()) c.gold.copy(alpha = 0.16f) else Color.Transparent)
-                        .clickable(onClick = onToggleNote),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Description,
-                        contentDescription = "Task note",
-                        tint = if (note.isNotBlank()) c.gold else c.muted,
-                        modifier = Modifier.size(19.dp)
-                    )
-                    if (note.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(c.gold)
-                        )
+                        if (note.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(7.dp)
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(c.gold)
+                            )
+                        }
                     }
                 }
-            }
 
-            AnimatedVisibility(visible = noteExpanded) {
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = onNoteChange,
-                    placeholder = { Text("Add a quick note for this task...", fontSize = 13.sp) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = c.surface,
-                        unfocusedContainerColor = c.surface
-                    ),
-                    minLines = 2
-                )
+                AnimatedVisibility(visible = noteExpanded) {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = onNoteChange,
+                        placeholder = { Text("Add a quick note for this task...", fontSize = 13.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = c.surface,
+                            unfocusedContainerColor = c.surface
+                        ),
+                        minLines = 2
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SwipeArrowBar(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(
+        modifier = modifier
+            .width(12.dp)
+            .height(42.dp)
+    ) {
+        val barWidth = 4.dp.toPx()
+        val midY = size.height / 2f
+
+        // 1. Sleek vertical rounded category bar
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                listOf(color.copy(alpha = 0.85f), color, color.copy(alpha = 0.85f))
+            ),
+            topLeft = Offset(0f, 0f),
+            size = Size(barWidth, size.height),
+            cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+        )
+
+        // 2. Smooth right-pointing arrow tip seamlessly merged into the bar
+        val arrowTipX = barWidth + 4.8.dp.toPx()
+        val arrowHalfH = 5.5.dp.toPx()
+        val tipPath = Path().apply {
+            moveTo(barWidth - 1.dp.toPx(), midY - arrowHalfH)
+            lineTo(arrowTipX, midY)
+            lineTo(barWidth - 1.dp.toPx(), midY + arrowHalfH)
+            close()
+        }
+        drawPath(
+            path = tipPath,
+            color = color
+        )
+
+        // 3. Subtle translucent echo chevron right beside the tip for instant swipe-right affordance
+        val chevronStartX = arrowTipX + 0.6.dp.toPx()
+        val chevronTipX = size.width - 0.5.dp.toPx()
+        val chevronHalfH = 3.8.dp.toPx()
+        val chevronPath = Path().apply {
+            moveTo(chevronStartX, midY - chevronHalfH)
+            lineTo(chevronTipX, midY)
+            lineTo(chevronStartX, midY + chevronHalfH)
+        }
+        drawPath(
+            path = chevronPath,
+            color = color.copy(alpha = 0.52f),
+            style = Stroke(
+                width = 1.4.dp.toPx(),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
     }
 }
 

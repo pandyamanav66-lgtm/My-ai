@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -51,7 +55,9 @@ fun AiCoachScreen(
     onSetLanguage: (String) -> Unit,
     onStopAi: () -> Unit,
     onDismissError: () -> Unit = {},
-    onCopyOutput: (String) -> Unit = {}
+    onCopyOutput: (String) -> Unit = {},
+    onPickPhoto: () -> Unit = {},
+    onClearPhoto: () -> Unit = {}
 ) {
     val c = LocalDrstColors.current
     var chatDraft by remember { mutableStateOf("") }
@@ -118,7 +124,7 @@ fun AiCoachScreen(
                         )
                     )
                     Text(
-                        text = "Ask doubts, study plans & exam tips",
+                        text = "Ask doubts, snap a photo, or get study plans",
                         style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
                     )
                 }
@@ -290,7 +296,64 @@ fun AiCoachScreen(
             }
         }
 
+        // Attached Photo Doubt Preview Pill
+        val attachedPhoto = aiState.attachedPhotoBitmap
+        AnimatedVisibility(visible = attachedPhoto != null) {
+            if (attachedPhoto != null) {
+                val previewShape = RoundedCornerShape(18.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(previewShape)
+                        .background(if (c.isDark) Color(0x88101836) else Color(0xE6FFFFFF))
+                        .border(1.dp, c.prismCyan.copy(alpha = 0.65f), previewShape)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Image(
+                        bitmap = attachedPhoto.asImageBitmap(),
+                        contentDescription = "Attached question photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, c.glassBorderTop, RoundedCornerShape(10.dp))
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Photo doubt attached",
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = c.ink
+                            )
+                        )
+                        Text(
+                            text = "Tap Send for step-by-step solution",
+                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
+                        )
+                    }
+                    IconButton(
+                        onClick = onClearPhoto,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("ai_clear_photo_button")
+                    ) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "Remove attached photo",
+                            tint = c.muted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // Frosted Glass Input Composer
+        val canSend = chatDraft.isNotBlank() || attachedPhoto != null
         val composerShape = RoundedCornerShape(22.dp)
         Row(
             modifier = Modifier
@@ -298,20 +361,46 @@ fun AiCoachScreen(
                 .clip(composerShape)
                 .background(if (c.isDark) Color(0x880E1633) else Color(0xE6FFFFFF))
                 .border(1.1.dp, c.glassBorderTop, composerShape)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            IconButton(
+                onClick = onPickPhoto,
+                enabled = !aiState.isChatStreaming,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (attachedPhoto != null) c.prismCyan.copy(alpha = 0.22f)
+                        else c.surface2
+                    )
+                    .testTag("ai_pick_photo_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AddPhotoAlternate,
+                    contentDescription = "Attach question photo",
+                    tint = if (attachedPhoto != null) c.prismCyan else c.ink,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
             OutlinedTextField(
                 value = chatDraft,
                 onValueChange = { chatDraft = it },
-                placeholder = { Text("Ask a study question...", fontSize = 13.sp, color = c.muted) },
+                placeholder = {
+                    Text(
+                        text = if (attachedPhoto != null) "Add note (optional)..." else "Ask or snap a doubt...",
+                        fontSize = 13.sp,
+                        color = c.muted
+                    )
+                },
                 modifier = Modifier.weight(1f).testTag("ai_chat_input"),
                 maxLines = 3,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
                     onSend = {
-                        if (chatDraft.isNotBlank() && !aiState.isChatStreaming) {
+                        if (canSend && !aiState.isChatStreaming) {
                             onSendChatMessage(chatDraft)
                             chatDraft = ""
                         }
@@ -339,17 +428,17 @@ fun AiCoachScreen(
             } else {
                 IconButton(
                     onClick = {
-                        if (chatDraft.isNotBlank()) {
+                        if (canSend) {
                             onSendChatMessage(chatDraft)
                             chatDraft = ""
                         }
                     },
-                    enabled = chatDraft.isNotBlank(),
+                    enabled = canSend,
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
                         .background(
-                            if (chatDraft.isNotBlank()) Brush.horizontalGradient(listOf(c.prismCyan, c.ok))
+                            if (canSend) Brush.horizontalGradient(listOf(c.prismCyan, c.ok))
                             else Brush.horizontalGradient(listOf(c.track, c.track))
                         )
                         .testTag("ai_send_button")
@@ -357,7 +446,7 @@ fun AiCoachScreen(
                     Icon(
                         Icons.AutoMirrored.Rounded.Send,
                         contentDescription = "Send message",
-                        tint = if (chatDraft.isNotBlank()) Color(0xFF061322) else c.muted,
+                        tint = if (canSend) Color(0xFF061322) else c.muted,
                         modifier = Modifier.size(20.dp)
                     )
                 }

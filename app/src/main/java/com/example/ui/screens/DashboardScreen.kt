@@ -239,6 +239,109 @@ fun DashboardScreen(
             }
         }
 
+        // 3.5. 30-Day Crystal Streak Heatmap (Liquid Glass Consistency Grid)
+        item(key = "streak_heatmap_card") {
+            val today = todayKey()
+            val last30Keys = remember(today) { (29 downTo 0).map { shiftDateKey(today, -it) } }
+            val activeDays = remember(profile, last30Keys) {
+                last30Keys.count { dKey ->
+                    Analytics.completionPercent(profile, dKey) >= 50 || profile.days[dKey]?.isRestDay == true
+                }
+            }
+            DrstCard(title = "30-Day Streak Heatmap") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "$activeDays / 30 active days",
+                        style = TextStyle(
+                            fontFamily = SpaceGroteskFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = c.ink
+                        )
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("Less", fontFamily = InterFontFamily, fontSize = 10.sp, color = c.muted)
+                        listOf(
+                            c.track.copy(alpha = 0.5f),
+                            c.gold.copy(alpha = 0.55f),
+                            c.prismCyan.copy(alpha = 0.65f),
+                            c.ok
+                        ).forEach { dotColor ->
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(dotColor)
+                            )
+                        }
+                        Text("More", fontFamily = InterFontFamily, fontSize = 10.sp, color = c.muted)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("streak_heatmap_grid"),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    last30Keys.chunked(6).forEach { rowKeys ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowKeys.forEach { dKey ->
+                                val dPct = Analytics.completionPercent(profile, dKey)
+                                val isRest = profile.days[dKey]?.isRestDay == true
+                                val isTodayCell = dKey == today
+                                val cellShape = RoundedCornerShape(9.dp)
+                                val cellColor = when {
+                                    isRest -> c.prismViolet.copy(alpha = 0.72f)
+                                    dPct >= 75 -> c.ok.copy(alpha = 0.88f)
+                                    dPct >= 45 -> c.prismCyan.copy(alpha = 0.65f)
+                                    dPct > 0 -> c.gold.copy(alpha = 0.55f)
+                                    else -> c.track.copy(alpha = 0.45f)
+                                }
+                                val dayNum = dKey.takeLast(2).trimStart('0').ifEmpty { "0" }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(30.dp)
+                                        .clip(cellShape)
+                                        .background(cellColor)
+                                        .border(
+                                            width = if (isTodayCell) 1.5.dp else 0.8.dp,
+                                            color = if (isTodayCell) c.ink else c.glassBorderTop.copy(alpha = 0.35f),
+                                            shape = cellShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = dayNum,
+                                        style = TextStyle(
+                                            fontFamily = SpaceGroteskFontFamily,
+                                            fontWeight = if (isTodayCell || dPct >= 75) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 10.sp,
+                                            color = if (dPct >= 45 || isRest) Color(0xFF061322) else c.muted,
+                                            fontFeatureSettings = "tnum"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 4. Hours by Subject This Week + 1-tap Share Weekly Summary
         item(key = "subject_hours_week_card") {
             DrstCard(title = "Study Hours by Subject") {

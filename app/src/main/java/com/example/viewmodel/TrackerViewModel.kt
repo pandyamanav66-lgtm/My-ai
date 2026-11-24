@@ -2,6 +2,7 @@ package com.example.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
@@ -50,6 +51,7 @@ data class FocusTimerState(
     val remainingSeconds: Int = 25 * 60,
     val isRunning: Boolean = false,
     val isPaused: Boolean = false,
+    val soundMode: FocusSoundMode = FocusSoundMode.OFF,
     val startedAtEpochMs: Long? = null,
     val endTimeEpochMs: Long? = null,
     val accumulatedElapsedSec: Int = 0
@@ -68,6 +70,7 @@ data class AiCoachUiState(
     val chatMessages: List<ChatMessageItem> = emptyList(),
     val streamingChatReply: String = "",
     val isChatStreaming: Boolean = false,
+    val attachedPhotoBitmap: Bitmap? = null,
     // Audio Transcription
     val isRecordingTranscript: Boolean = false,
     val recordingSeconds: Int = 0,
@@ -121,6 +124,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     private val aiService = AiCoachService()
     private val appUpdateService = AppUpdateService()
     private val audioRecorder = AudioRecorderHelper(application)
+    private val focusSoundEngine = FocusSoundEngine()
 
     private var updateCheckJob: Job? = null
     private var lastAutoUpdateCheckMs: Long = 0L
@@ -201,10 +205,18 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     // ---- Profile lifecycle (100% local, zero sign-in) ----
 
-    fun createProfile(name: String) {
+    fun createProfile(name: String, preset: RoutinePreset? = null) {
         val clean = name.trim()
         if (clean.isEmpty()) return
-        val newProfile = UserProfile(name = clean)
+        val newProfile = if (preset != null) {
+            UserProfile(
+                name = clean,
+                routine = routineForPreset(preset),
+                dailyStudyGoalHours = preset.defaultGoalHours
+            )
+        } else {
+            UserProfile(name = clean)
+        }
         updateStore { s ->
             s.copy(
                 activeProfileId = newProfile.id,
@@ -520,6 +532,30 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setFocusSoundMode(mode: FocusSoundMode) {
+        _uiState.update { it.copy(timer = it.timer.copy(soundMode = mode)) }
+        if (mode == FocusSoundMode.OFF) {
+            focusSoundEngine.stop()
+        } else {
+            focusSoundEngine.start(mode)
+        }
+    }
+
+    fun startFocusForTask(task: RoutineTask) {
+        val subj = task.subject.trim().ifBlank {
+            _uiState.value.store.activeProfile?.subjects?.firstOrNull() ?: "Maths"
+        }
+        if (subj.isNotBlank()) {
+            val activeSubjects = _uiState.value.store.activeProfile?.subjects.orEmpty()
+            if (subj !in activeSubjects) {
+                addSubject(subj)
+            }
+            selectFocusSubject(subj)
+        }
+        selectTab(AppTab.FOCUS)
+        showToast("Focus ready: $subj")
+    }
+
     fun startOrResumeTimer() {
         val cur = _uiState.value.timer
         if (cur.isRunning) return
@@ -537,6 +573,9 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 )
             )
         }
+        if (cur.soundMode != FocusSoundMode.OFF) {
+            focusSoundEngine.start(cur.soundMode)
+        }
         startTickerLoop()
     }
 
@@ -544,6 +583,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         val cur = _uiState.value.timer
         if (!cur.isRunning) return
         timerJob?.cancel()
+        focusSoundEngine.stop()
         val now = System.currentTimeMillis()
         val end = cur.endTimeEpochMs ?: now
         val rem = max(0, ((end - now) / 1000L).toInt())
@@ -600,6 +640,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     private fun stopTimerInternal() {
         timerJob?.cancel()
         timerJob = null
+        focusSoundEngine.stop()
     }
 
     private fun startTickerLoop() {
@@ -774,14 +815,26 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(ai = it.ai.copy(chatMode = mode, errorMessage = null)) }
     }
 
+    fun setAttachedPhoto(bitmap: Bitmap?) {
+        _uiState.update {
+            it.copy(ai = it.ai.copy(attachedPhotoBitmap = bitmap, errorMessage = null))
+        }
+    }
+
     fun sendChatMessage(text: String) {
         val clean = text.trim()
         val profile = _uiState.value.store.activeProfile ?: return
-        if (clean.isEmpty()) return
+        val attachedPhoto = _uiState.value.ai.attachedPhotoBitmap
+        if (clean.isEmpty() && attachedPhoto == null) return
 
         val mode = _uiState.value.ai.chatMode
         val priorHistory = _uiState.value.ai.chatMessages
-        val userMsg = ChatMessageItem(role = "user", text = clean, modelUsed = mode.modelName)
+        val displayUserText = if (attachedPhoto != null) {
+            if (clean.isNotEmpty()) "[Photo Doubt] $clean" else "[Photo Doubt] Solve this step-by-step"
+        } else {
+            clean
+        }
+        val userMsg = ChatMessageItem(role = "user", text = displayUserText, modelUsed = mode.modelName)
         val updatedWithUser = (priorHistory + userMsg).takeLast(60)
 
         updateActiveProfile { it.copy(chatHistory = updatedWithUser) }
@@ -793,6 +846,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     chatMessages = updatedWithUser,
                     isChatStreaming = true,
                     streamingChatReply = "",
+                    attachedPhotoBitmap = null,
                     errorMessage = null
                 )
             )
@@ -801,12 +855,21 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         aiJob = viewModelScope.launch {
             val sb = StringBuilder()
             try {
-                aiService.streamChatReply(
-                    profile = profile,
-                    history = priorHistory,
-                    userMessage = clean,
-                    mode = mode
-                ).collect { chunk ->
+                val flow = if (attachedPhoto != null) {
+                    aiService.streamPhotoDoubtReply(
+                        profile = profile,
+                        bitmap = attachedPhoto,
+                        userPrompt = clean
+                    )
+                } else {
+                    aiService.streamChatReply(
+                        profile = profile,
+                        history = priorHistory,
+                        userMessage = clean,
+                        mode = mode
+                    )
+                }
+                flow.collect { chunk ->
                     sb.append(chunk)
                     _uiState.update {
                         it.copy(ai = it.ai.copy(streamingChatReply = sb.toString()))
@@ -1558,6 +1621,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         timerJob?.cancel()
         aiJob?.cancel()
         micPollJob?.cancel()
+        focusSoundEngine.stop()
         audioRecorder.stopAndDiscard()
         try {
             tts?.stop()

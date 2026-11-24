@@ -10,12 +10,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.Analytics
+import com.example.data.RoutinePreset
 import com.example.data.UserProfile
 import com.example.ui.components.BrandLogoMark
 import com.example.ui.components.LiquidGlassBackdrop
@@ -118,11 +122,12 @@ fun SplashScreen(onFinished: () -> Unit) {
 @Composable
 fun NamePromptScreen(
     isCreatingAdditional: Boolean,
-    onCreateProfile: (String) -> Unit,
+    onCreateProfile: (String, RoutinePreset) -> Unit,
     onCancel: (() -> Unit)? = null
 ) {
     val c = LocalDrstColors.current
     var name by remember { mutableStateOf("") }
+    var selectedPreset by remember { mutableStateOf(RoutinePreset.MINIMAL) }
     val cardShape = RoundedCornerShape(28.dp)
     val rimBrush = remember(c.glassBorderTop, c.glassBorderBottom) {
         Brush.linearGradient(listOf(c.glassBorderTop, c.glassBorderBottom))
@@ -133,7 +138,7 @@ fun NamePromptScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding()
-                .padding(24.dp),
+                .padding(20.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -143,20 +148,21 @@ fun NamePromptScreen(
                     .clip(cardShape)
                     .background(c.glassFillStrong)
                     .border(1.1.dp, rimBrush, cardShape)
-                    .padding(24.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
                     modifier = Modifier
-                        .size(68.dp)
+                        .size(64.dp)
                         .clip(CircleShape)
                         .background(c.band)
                         .border(1.5.dp, c.gold.copy(alpha = 0.75f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    BrandLogoMark(size = 42.dp, arcColor = c.gold, checkColor = c.onBand)
+                    BrandLogoMark(size = 40.dp, arcColor = c.gold, checkColor = c.onBand)
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     text = if (isCreatingAdditional) "Create New Profile" else "Welcome!",
                     style = TextStyle(
@@ -176,18 +182,7 @@ fun NamePromptScreen(
                         color = c.muted
                     )
                 )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "What should we call you? No login required — your routine and progress stay saved privately on this device.",
-                    textAlign = TextAlign.Center,
-                    style = TextStyle(
-                        fontFamily = InterFontFamily,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        color = c.muted
-                    )
-                )
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -196,16 +191,88 @@ fun NamePromptScreen(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(
-                        onDone = { if (name.isNotBlank()) onCreateProfile(name) }
+                        onDone = { if (name.isNotBlank()) onCreateProfile(name, selectedPreset) }
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("onboarding_name_input"),
                     shape = RoundedCornerShape(14.dp)
                 )
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    text = "CHOOSE STARTER ROUTINE",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        letterSpacing = 0.9.sp,
+                        color = c.muted
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoutinePreset.entries.forEach { preset ->
+                        val active = preset == selectedPreset
+                        val presetShape = RoundedCornerShape(16.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(presetShape)
+                                .background(
+                                    if (active) c.prismCyan.copy(alpha = if (c.isDark) 0.18f else 0.14f)
+                                    else c.glassFill
+                                )
+                                .border(
+                                    width = if (active) 1.4.dp else 1.dp,
+                                    color = if (active) c.prismCyan else c.line,
+                                    shape = presetShape
+                                )
+                                .clickable { selectedPreset = preset }
+                                .padding(horizontal = 14.dp, vertical = 11.dp)
+                                .testTag("preset_option_${preset.name.lowercase()}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = preset.label,
+                                    style = TextStyle(
+                                        fontFamily = SpaceGroteskFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = c.ink
+                                    )
+                                )
+                                Text(
+                                    text = preset.subtitle,
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 12.sp,
+                                        color = c.muted
+                                    )
+                                )
+                            }
+                            if (active) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CheckCircle,
+                                    contentDescription = "Selected preset",
+                                    tint = c.prismCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(18.dp))
                 Button(
-                    onClick = { onCreateProfile(name) },
+                    onClick = { onCreateProfile(name, selectedPreset) },
                     enabled = name.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()

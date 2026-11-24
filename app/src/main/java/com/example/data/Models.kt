@@ -32,6 +32,23 @@ enum class AiChatMode(val label: String, val modelName: String, val description:
     DEEP("Deep Study", "gemini-3.8-flash", "Step-by-step deep reasoning")
 }
 
+enum class FocusSoundMode(val label: String) {
+    OFF("Silent"),
+    RAIN("Rain"),
+    BROWN_NOISE("Brown"),
+    LOFI_PAD("Lo-Fi")
+}
+
+enum class RoutinePreset(
+    val label: String,
+    val subtitle: String,
+    val defaultGoalHours: Double
+) {
+    MINIMAL("Minimal", "6 clean blocks • 4h goal", 4.0),
+    COLLEGE("College / School", "9 balanced blocks • 5h goal", 5.0),
+    EXAM_PREP("Exam Prep", "12 focused blocks • 7h goal", 7.0)
+}
+
 val ALL_CATEGORIES = listOf(
     "Study",
     "Revision",
@@ -197,6 +214,44 @@ fun defaultRoutine19Tasks(): List<RoutineTask> = listOf(
     RoutineTask("t18", "21:15", "21:45", "Reading & next-day planning", "Planning"),
     RoutineTask("t19", "21:45", "22:30", "Wind down, digital sunset & sleep prep", "Sleep")
 )
+
+fun routineForPreset(preset: RoutinePreset): List<RoutineTask> = when (preset) {
+    RoutinePreset.MINIMAL -> listOf(
+        RoutineTask("m01", "06:30", "07:15", "Morning routine & light movement", "Morning"),
+        RoutineTask("m02", "08:00", "09:30", "Deep Focus Block 1 — Core Study", "Study", "Maths"),
+        RoutineTask("m03", "11:00", "12:30", "Deep Focus Block 2 — Practice & Notes", "Practice", "Physics"),
+        RoutineTask("m04", "16:30", "17:30", "Active Revision & Weak Areas", "Revision", "Chemistry"),
+        RoutineTask("m05", "18:00", "18:45", "Walk / Workout & Screen Break", "Fitness"),
+        RoutineTask("m06", "21:15", "21:45", "Next-day plan & wind down", "Planning")
+    )
+
+    RoutinePreset.COLLEGE -> listOf(
+        RoutineTask("c01", "06:30", "07:00", "Wake up, hydrate & fresh up", "Morning"),
+        RoutineTask("c02", "07:15", "08:30", "Morning self-study & preview", "Study", "Maths"),
+        RoutineTask("c03", "09:30", "13:00", "Classes / Lectures & active notes", "Classes", "Computer Science"),
+        RoutineTask("c04", "13:00", "14:00", "Lunch & recharge", "Meals"),
+        RoutineTask("c05", "15:00", "16:30", "Assignments & problem solving", "Practice", "Physics"),
+        RoutineTask("c06", "17:30", "18:30", "Workout / outdoor walk", "Fitness"),
+        RoutineTask("c07", "19:30", "20:45", "Evening study block — Core subject", "Study", "Chemistry"),
+        RoutineTask("c08", "21:00", "21:45", "Quick revision & formula recall", "Revision", "English"),
+        RoutineTask("c09", "22:00", "22:30", "Plan tomorrow & digital sunset", "Sleep")
+    )
+
+    RoutinePreset.EXAM_PREP -> listOf(
+        RoutineTask("e01", "05:45", "06:15", "Wake up, hydrate & stretch", "Morning"),
+        RoutineTask("e02", "06:30", "08:15", "Deep Study 1 — High-weightage concepts", "Study", "Maths"),
+        RoutineTask("e03", "08:15", "09:00", "Breakfast & mindful break", "Meals"),
+        RoutineTask("e04", "09:00", "10:45", "Deep Study 2 — Numericals & derivations", "Study", "Physics"),
+        RoutineTask("e05", "11:00", "12:30", "Classes / Video lectures & notes", "Classes", "Chemistry"),
+        RoutineTask("e06", "12:30", "13:30", "Lunch & power rest", "Meals"),
+        RoutineTask("e07", "13:45", "15:15", "Timed PYQs & MCQ drill", "Practice", "Maths"),
+        RoutineTask("e08", "15:30", "16:45", "New chapter & summary sheet", "Study", "Chemistry"),
+        RoutineTask("e09", "17:15", "18:00", "Workout / outdoor refresh", "Fitness"),
+        RoutineTask("e10", "18:30", "20:00", "Weak topic repair & mock review", "Revision", "Physics"),
+        RoutineTask("e11", "20:45", "21:30", "Formula flashcards & quick recap", "Revision", "General Studies"),
+        RoutineTask("e12", "21:30", "22:15", "Plan tomorrow & wind down", "Sleep")
+    )
+}
 
 fun parseTimeToMinutes(timeStr: String): Int {
     val parts = timeStr.trim().split(":")
