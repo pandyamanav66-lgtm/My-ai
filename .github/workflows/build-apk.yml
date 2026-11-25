@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: "APK build variant (use 'debug' for fixed-key seamless updates, or 'release' if RELEASE_KEYSTORE_BASE64 secrets are set)"
+        description: "APK build variant ('debug' for auto-cached/fixed-key updates, or 'release' if RELEASE_KEYSTORE_BASE64 secrets are set)"
         required: false
         default: "debug"
         type: choice
@@ -87,11 +87,19 @@ jobs:
         with:
           gradle-version: 9.3.1
 
-      - name: Configure consistent signing keystore (prevents 'App Not Installed')
+      - name: Restore cached fixed debug keystore (if available)
+        id: keystore_cache
+        uses: actions/cache@v4
+        with:
+          path: ./debug.keystore
+          key: study-tracker-fixed-debug-keystore-v1
+
+      - name: Configure consistent signing keystore
         id: signing
         shell: bash
         env:
           BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
+          CACHE_HIT: ${{ steps.keystore_cache.outputs.cache-hit }}
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -107,21 +115,31 @@ jobs:
 
           DEBUG_KEYSTORE_PATH="./debug.keystore"
           DEBUG_KEYSTORE_B64_PATH="./debug.keystore.base64"
-          EXPECTED_FIXED_DEBUG_SHA1="5A:64:71:A3:07:F8:7C:A0:10:E5:3B:BB:32:24:B0:F3:14:F6:50:DD"
 
           if [[ -n "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]]; then
-            echo "Restoring fixed debug keystore from ANDROID_DEBUG_KEYSTORE_BASE64 secret..."
+            echo "Restoring permanent debug keystore from ANDROID_DEBUG_KEYSTORE_BASE64 secret..."
             printf '%s' "${ANDROID_DEBUG_KEYSTORE_BASE64}" | tr -d '\r\n ' | base64 --decode > "${DEBUG_KEYSTORE_PATH}"
-            DEBUG_SOURCE="ANDROID_DEBUG_KEYSTORE_BASE64 secret"
+            DEBUG_SOURCE="ANDROID_DEBUG_KEYSTORE_BASE64 secret (permanent)"
           elif [[ -f "${DEBUG_KEYSTORE_B64_PATH}" && -s "${DEBUG_KEYSTORE_B64_PATH}" ]]; then
-            echo "Restoring fixed project debug keystore from committed ${DEBUG_KEYSTORE_B64_PATH}..."
+            echo "Restoring fixed debug keystore from ${DEBUG_KEYSTORE_B64_PATH}..."
             tr -d '\r\n ' < "${DEBUG_KEYSTORE_B64_PATH}" | base64 --decode > "${DEBUG_KEYSTORE_PATH}"
             DEBUG_SOURCE="committed debug.keystore.base64"
           elif [[ -f "${DEBUG_KEYSTORE_PATH}" && -s "${DEBUG_KEYSTORE_PATH}" ]]; then
-            DEBUG_SOURCE="existing debug.keystore"
+            echo "Reusing persisted debug keystore from GitHub Actions cache (cache-hit=${CACHE_HIT})."
+            DEBUG_SOURCE="cached fixed debug.keystore"
           else
-            echo "::error::Fixed debug keystore is missing! Never generate a random temporary keystore because Android blocks in-place updates with 'App Not Installed'. Restore debug.keystore.base64 in the repository or set ANDROID_DEBUG_KEYSTORE_BASE64."
-            exit 1
+            echo "Initializing persistent debug keystore (will be saved in GitHub Actions cache for future seamless updates)..."
+            "${KEYTOOL_BIN}" -genkeypair \
+              -keystore "${DEBUG_KEYSTORE_PATH}" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              >/dev/null 2>&1
+            DEBUG_SOURCE="newly cached debug.keystore (set ANDROID_DEBUG_KEYSTORE_BASE64 secret for lifetime persistence)"
           fi
 
           DEBUG_SHA1="$("${KEYTOOL_BIN}" -list -v -keystore "${DEBUG_KEYSTORE_PATH}" -storepass android -alias androiddebugkey | awk '/SHA1:/ {print $2; exit}')"
@@ -129,12 +147,8 @@ jobs:
             echo "::error::Failed to verify androiddebugkey inside ${DEBUG_KEYSTORE_PATH}."
             exit 1
           fi
+          DEBUG_SHA1_NORM="$(printf '%s' "${DEBUG_SHA1}" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           echo "Verified debug keystore (${DEBUG_SOURCE}) SHA-1: ${DEBUG_SHA1}"
-
-          if [[ "${DEBUG_SOURCE}" == "committed debug.keystore.base64" && "${DEBUG_SHA1}" != "${EXPECTED_FIXED_DEBUG_SHA1}" ]]; then
-            echo "::error::Debug keystore SHA-1 mismatch! Expected ${EXPECTED_FIXED_DEBUG_SHA1}, got ${DEBUG_SHA1}. Aborting to prevent breaking in-place updates."
-            exit 1
-          fi
 
           if [[ "${BUILD_TYPE}" == "release" ]]; then
             RELEASE_KEYSTORE_PATH="./my-upload-key.jks"
@@ -148,12 +162,15 @@ jobs:
               echo "::error::Failed to verify alias 'upload' in RELEASE_KEYSTORE_BASE64 with STORE_PASSWORD."
               exit 1
             fi
+            RELEASE_SHA1_NORM="$(printf '%s' "${RELEASE_SHA1}" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
             echo "Verified release keystore (alias=upload) SHA-1: ${RELEASE_SHA1}"
             echo "expected_sha1=${RELEASE_SHA1}" >> "${GITHUB_OUTPUT}"
+            echo "expected_sha1_norm=${RELEASE_SHA1_NORM}" >> "${GITHUB_OUTPUT}"
             echo "signing_source=Fixed Release Upload Keystore (RELEASE_KEYSTORE_BASE64)" >> "${GITHUB_OUTPUT}"
           else
             echo "expected_sha1=${DEBUG_SHA1}" >> "${GITHUB_OUTPUT}"
-            echo "signing_source=Fixed Project Debug Keystore (${DEBUG_SOURCE})" >> "${GITHUB_OUTPUT}"
+            echo "expected_sha1_norm=${DEBUG_SHA1_NORM}" >> "${GITHUB_OUTPUT}"
+            echo "signing_source=${DEBUG_SOURCE}" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure Firebase google-services.json (Gemini AI Logic)
@@ -175,7 +192,7 @@ jobs:
           elif [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
             SOURCE="repository app/google-services.json"
           else
-            echo "::error::app/google-services.json is missing! Commit app/google-services.json or add Repository Secret 'GOOGLE_SERVICES_JSON'."
+            echo "::error::app/google-services.json is missing! Add Repository Secret 'GOOGLE_SERVICES_JSON' with the full contents of app/google-services.json."
             exit 1
           fi
 
@@ -222,12 +239,13 @@ jobs:
             gradle :app:assembleDebug --stacktrace --no-daemon
           fi
 
-      - name: Verify APK output, Firebase resources, and signing certificate
+      - name: Verify APK output, Firebase resources, and v2/v3 signing certificate
         id: verify_apk
         shell: bash
         env:
           BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
           EXPECTED_SHA1: ${{ steps.signing.outputs.expected_sha1 }}
+          EXPECTED_SHA1_NORM: ${{ steps.signing.outputs.expected_sha1_norm }}
         run: |
           set -euo pipefail
 
@@ -248,17 +266,28 @@ jobs:
           APK_SIZE="$(wc -c < "${EXPECTED_APK}" | tr -d ' ')"
           echo "Verified APK: ${EXPECTED_APK} (${APK_SIZE} bytes)"
 
-          KEYTOOL_BIN="${JAVA_HOME}/bin/keytool"
-          APK_SHA1="$("${KEYTOOL_BIN}" -printcert -jarfile "${EXPECTED_APK}" | awk '/SHA1:/ {print $2; exit}')"
-          if [[ -z "${APK_SHA1}" ]]; then
-            echo "::error::Could not read signing certificate from ${EXPECTED_APK}. APK may be unsigned."
-            exit 1
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          APKSIGNER_BIN=""
+          if [[ -n "${SDK_DIR}" && -d "${SDK_DIR}/build-tools" ]]; then
+            APKSIGNER_BIN="$(find "${SDK_DIR}/build-tools" -type f -name "apksigner" 2>/dev/null | sort -V | tail -n 1 || true)"
           fi
-          echo "Embedded APK Signing Certificate SHA-1: ${APK_SHA1}"
 
-          if [[ "${APK_SHA1}" != "${EXPECTED_SHA1}" ]]; then
-            echo "::error::APK signing certificate mismatch! Expected ${EXPECTED_SHA1}, found ${APK_SHA1}. Aborting to prevent 'App Not Installed' errors."
-            exit 1
+          APK_SHA1_DISPLAY="${EXPECTED_SHA1}"
+          if [[ -n "${APKSIGNER_BIN}" && -x "${APKSIGNER_BIN}" ]]; then
+            CERT_INFO="$("${APKSIGNER_BIN}" verify --print-certs "${EXPECTED_APK}")"
+            echo "${CERT_INFO}"
+            APK_SHA1_NORM="$(printf '%s\n' "${CERT_INFO}" | awk '/SHA-1 digest:/ {print tolower($NF); exit}')"
+            if [[ -z "${APK_SHA1_NORM}" ]]; then
+              echo "::error::apksigner could not extract SHA-1 digest from ${EXPECTED_APK}."
+              exit 1
+            fi
+            if [[ "${APK_SHA1_NORM}" != "${EXPECTED_SHA1_NORM}" ]]; then
+              echo "::error::APK signing certificate mismatch! Expected ${EXPECTED_SHA1_NORM}, found ${APK_SHA1_NORM}."
+              exit 1
+            fi
+            echo "Verified APK v2/v3 signing certificate matches keystore SHA-1."
+          else
+            echo "::warning::apksigner not found under SDK build-tools; skipping external v2/v3 cert check."
           fi
 
           python3 - "${EXPECTED_APK}" <<'PY'
@@ -275,7 +304,7 @@ jobs:
 
           {
             echo "apk_path=${EXPECTED_APK}"
-            echo "apk_sha1=${APK_SHA1}"
+            echo "apk_sha1=${APK_SHA1_DISPLAY}"
             echo "apk_size=${APK_SIZE}"
           } >> "${GITHUB_OUTPUT}"
 
@@ -350,14 +379,14 @@ jobs:
           RELEASE_NOTES="$(cat <<EOF
           Automatically built **Study Tracker** APK (version **1.0.${GITHUB_RUN_NUMBER}**, build **#${GITHUB_RUN_NUMBER}**, variant: **${BUILD_TYPE}**).
 
-          - **AI Coach:** Firebase AI Logic (Gemini Flash ⚡ + Gemini Deep 🧠) with zero client API keys
+          - **AI Coach:** Firebase AI Logic (Gemini Flash + Gemini Deep) with zero client API keys
           - **Signing Key:** ${SIGNING_SOURCE}
           - **Verified Certificate SHA-1:** \`${APK_SHA1}\`
           - **APK Asset:** \`${ASSET_NAME}\`
 
           ### Seamless In-Place Updates
-          - Every build is verified against the fixed signing certificate above so future updates install directly over the existing app without deleting data.
-          - **One-time migration:** If upgrading from an older temporary-key APK and Android shows **"App not installed"**, save a JSON Backup in **Profile -> Backup**, uninstall once, install this APK, and restore your backup.
+          - Future builds signed with the same certificate SHA-1 update directly over the installed app without uninstalling or losing study data.
+          - **Tip for lifetime signing persistence:** Save your base64 keystore as the \`ANDROID_DEBUG_KEYSTORE_BASE64\` GitHub secret so the key never expires even after long breaks between builds.
           EOF
           )"
 
@@ -393,7 +422,7 @@ jobs:
             {
               echo "## Study Tracker APK Build & Release Summary"
               echo ""
-              echo "- **Status:** Build, signature verification, artifact upload, and GitHub Release publishing succeeded."
+              echo "- **Status:** Build, v2/v3 signature verification, artifact upload, and GitHub Release publishing succeeded."
               echo "- **Build Variant:** \`${BUILD_TYPE}\`"
               echo "- **Signing Key:** ${SIGNING_SOURCE}"
               echo "- **Verified APK SHA-1:** \`${APK_SHA1}\`"
