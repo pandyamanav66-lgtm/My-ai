@@ -1,276 +1,360 @@
 package com.example.data
 
 import android.graphics.Bitmap
+import android.util.Base64
 import android.util.Log
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.Content
-import com.google.firebase.ai.type.GenerateContentResponse
-import com.google.firebase.ai.type.Schema
-import com.google.firebase.ai.type.content
-import com.google.firebase.ai.type.generationConfig
-import com.google.firebase.appcheck.FirebaseAppCheck
+import com.example.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import okhttp3.Call
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.Locale
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import java.util.concurrent.TimeUnit
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val TAG = "AiCoachService"
-private const val DEFAULT_MODEL = "gemini-3.8-flash"
-private const val FAST_LITE_MODEL = "gemini-3.5-flash-lite"
-private const val APP_CHECK_WARMUP_TIMEOUT_MS = 4_000L
-private const val FIRST_CHUNK_WATCHDOG_MS = 20_000L
-private const val UNARY_PRIMARY_TIMEOUT_MS = 28_000L
+private const val BASE_URL = "https://api.openai.com/v1"
+private const val DEFAULT_MODEL = "gpt-4o-mini"
+private const val DEEP_MODEL = "gpt-4o"
+private const val WHISPER_MODEL = "whisper-1"
+private const val PLACEHOLDER_KEY = "OPENAI_API_KEY_DEFAULT_VALUE"
 private const val AI_TIMEOUT_MS = 60_000L
+private const val MAX_VISION_DIMENSION_PX = 1280
+
+private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private val AUDIO_MEDIA_TYPE = "audio/mp4".toMediaType()
+
+class MissingOpenAiApiKeyException : IllegalStateException(
+    "OpenAI API key is not configured. Add OPENAI_API_KEY in the AI Studio Secrets panel (or GitHub Actions Repository Secrets for APK builds) and rebuild."
+)
+
+class OpenAiApiException(
+    val statusCode: Int,
+    val apiMessage: String
+) : IOException("OpenAI API error ($statusCode): $apiMessage")
+
+internal sealed interface SseDeltaResult {
+    data class Chunk(val text: String) : SseDeltaResult
+    data object Done : SseDeltaResult
+    data object Ignore : SseDeltaResult
+}
 
 class AiCoachService {
 
-    private val streamModel by lazy {
-        Firebase.ai.generativeModel(modelName = DEFAULT_MODEL)
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
     }
 
-    private val fastLiteModel by lazy {
-        Firebase.ai.generativeModel(modelName = FAST_LITE_MODEL)
-    }
-
-    private val quickAddSchema = Schema.obj(
-        properties = mapOf(
-            "title" to Schema.string(description = "Concise task title"),
-            "start" to Schema.string(description = "24-hour start time in HH:mm format, e.g. 19:00"),
-            "end" to Schema.string(description = "24-hour end time in HH:mm format, e.g. 20:00"),
-            "category" to Schema.enumeration(
-                values = ALL_CATEGORIES,
-                description = "Best matching routine category"
-            ),
-            "subject" to Schema.string(description = "Subject name if Study/Revision/Practice/Classes, else empty string")
-        )
-    )
-
-    private val quickAddModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = DEFAULT_MODEL,
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = quickAddSchema
-                maxOutputTokens = 400
-            }
-        )
-    }
-
-    private val quickAddLiteModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = FAST_LITE_MODEL,
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = quickAddSchema
-                maxOutputTokens = 400
-            }
-        )
-    }
-
-    private val buildRoutineSchema = Schema.obj(
-        properties = mapOf(
-            "summary" to Schema.string(description = "Brief 1-2 sentence explanation of the routine"),
-            "tasks" to Schema.array(
-                description = "Ordered daily routine tasks covering the day from wake-up to sleep",
-                items = Schema.obj(
-                    properties = mapOf(
-                        "start" to Schema.string(description = "24-hour start time HH:mm"),
-                        "end" to Schema.string(description = "24-hour end time HH:mm"),
-                        "title" to Schema.string(description = "Clear task title"),
-                        "category" to Schema.enumeration(values = ALL_CATEGORIES),
-                        "subject" to Schema.string(description = "Subject name for study tasks, empty otherwise")
-                    )
-                )
-            )
-        )
-    )
-
-    private val buildRoutineModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = DEFAULT_MODEL,
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = buildRoutineSchema
-                maxOutputTokens = 2048
-            }
-        )
-    }
-
-    private val buildRoutineLiteModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = FAST_LITE_MODEL,
-            generationConfig = generationConfig {
-                responseMimeType = "application/json"
-                responseSchema = buildRoutineSchema
-                maxOutputTokens = 2048
-            }
-        )
-    }
-
-    /**
-     * Best-effort, non-blocking App Check token warm-up.
-     * Never throws to hard-block Gemini requests — Firebase.ai attaches App Check tokens natively
-     * and will surface the authentic server response if attestation is actually enforced/rejected.
-     */
-    private suspend fun warmAppCheckBestEffort() {
-        try {
-            withTimeout(APP_CHECK_WARMUP_TIMEOUT_MS) {
-                suspendCancellableCoroutine<Unit> { cont ->
-                    FirebaseAppCheck.getInstance()
-                        .getAppCheckToken(false)
-                        .addOnSuccessListener {
-                            if (cont.isActive) cont.resume(Unit)
-                        }
-                        .addOnFailureListener { exc ->
-                            Log.w(TAG, "Best-effort App Check pre-warm warning: ${exc.localizedMessage}")
-                            if (cont.isActive) cont.resume(Unit)
-                        }
-                }
-            }
-        } catch (ce: CancellationException) {
-            if (ce is TimeoutCancellationException) {
-                Log.w(TAG, "Best-effort App Check pre-warm timed out; proceeding with Firebase.ai directly.")
-            } else {
-                throw ce
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Best-effort App Check pre-warm skipped: ${e.localizedMessage}")
+    internal fun requireApiKey(rawKey: String = BuildConfig.OPENAI_API_KEY): String {
+        val key = rawKey.trim()
+        if (key.isEmpty() || key.equals(PLACEHOLDER_KEY, ignoreCase = true)) {
+            throw MissingOpenAiApiKeyException()
         }
+        return key
     }
 
-    /**
-     * Resilient streaming pipeline with a 20-second first-chunk watchdog:
-     * - Streams smoothly from the primary model when chunks flow normally.
-     * - If SSE streaming stalls on mobile carriers or the primary model takes >20s before
-     *   emitting its first token (or throws a transient error before outputting text),
-     *   cancels the stalled stream and immediately executes a fast unary fallback call on
-     *   gemini-3.5-flash-lite within the 60-second total budget.
-     */
-    private fun streamWithFastFallback(
-        primaryStream: () -> Flow<GenerateContentResponse>,
-        fallbackUnary: suspend () -> GenerateContentResponse
-    ): Flow<String> = channelFlow {
-        warmAppCheckBestEffort()
-
-        var receivedAnyChunk = false
-        var primaryFailed: Throwable? = null
-
-        withTimeout(AI_TIMEOUT_MS) {
-            val streamJob = launch {
-                try {
-                    primaryStream().collect { chunk ->
-                        val txt = chunk.text.orEmpty()
-                        if (txt.isNotEmpty()) {
-                            receivedAnyChunk = true
-                            send(txt)
-                        }
-                    }
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (e: Throwable) {
-                    primaryFailed = e
-                    Log.w(TAG, "Primary stream interrupted (chunks=$receivedAnyChunk): ${e.localizedMessage}", e)
-                }
-            }
-
-            val watchdogJob = launch {
-                delay(FIRST_CHUNK_WATCHDOG_MS)
-                if (!receivedAnyChunk && streamJob.isActive) {
-                    Log.w(TAG, "No first chunk in ${FIRST_CHUNK_WATCHDOG_MS}ms; switching to fast unary fallback.")
-                    streamJob.cancel()
-                }
-            }
-
-            streamJob.join()
-            watchdogJob.cancel()
-
-            if (!receivedAnyChunk) {
-                try {
-                    val fallbackResp = fallbackUnary()
-                    val fallbackText = fallbackResp.text?.trim().orEmpty()
-                    if (fallbackText.isNotEmpty()) {
-                        send(fallbackText)
-                    } else if (primaryFailed != null) {
-                        throw primaryFailed!!
-                    } else {
-                        throw IllegalStateException("Gemini returned an empty response. Please try again.")
-                    }
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (fallbackErr: Exception) {
-                    Log.e(TAG, "Fallback unary call failed", fallbackErr)
-                    throw (primaryFailed as? Exception) ?: fallbackErr
-                }
-            }
-        }
-    }.flowOn(Dispatchers.IO)
-
-    /**
-     * Resilient unary generation with primary 26s timeout and automatic fallback to
-     * gemini-3.5-flash-lite inside a 60s total budget.
-     */
-    private suspend fun unaryWithFastFallback(
-        primaryCall: suspend () -> GenerateContentResponse,
-        fallbackCall: suspend () -> GenerateContentResponse
-    ): GenerateContentResponse = withContext(Dispatchers.IO) {
-        warmAppCheckBestEffort()
-        withTimeout(AI_TIMEOUT_MS) {
-            try {
-                withTimeout(UNARY_PRIMARY_TIMEOUT_MS) {
-                    primaryCall()
-                }
-            } catch (t: TimeoutCancellationException) {
-                Log.w(TAG, "Primary unary call timed out after ${UNARY_PRIMARY_TIMEOUT_MS}ms; retrying on $FAST_LITE_MODEL.")
-                fallbackCall()
-            } catch (ce: CancellationException) {
-                throw ce
-            } catch (e: Exception) {
-                Log.w(TAG, "Primary unary call failed (${e.localizedMessage}); retrying on $FAST_LITE_MODEL.")
-                try {
-                    fallbackCall()
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (_: Exception) {
-                    throw e
-                }
-            }
-        }
-    }
-
-    internal fun buildValidChatHistory(history: List<ChatMessageItem>): List<Content> {
-        val valid = mutableListOf<Content>()
+    internal fun buildValidChatHistory(history: List<ChatMessageItem>): List<Pair<String, String>> {
+        val valid = mutableListOf<Pair<String, String>>()
         var expectedRole = "user"
-        for (msg in history.takeLast(20)) {
-            val role = if (msg.role == "model") "model" else "user"
+        for (msg in history.takeLast(16)) {
+            val role = if (msg.role == "model" || msg.role == "assistant") "assistant" else "user"
             val body = msg.text.trim()
             if (body.isEmpty()) continue
             if (role == expectedRole) {
-                valid.add(content(role = role) { text(body) })
-                expectedRole = if (expectedRole == "user") "model" else "user"
-            } else if (role == "user" && valid.isNotEmpty() && expectedRole == "model") {
+                valid.add(role to body)
+                expectedRole = if (expectedRole == "user") "assistant" else "user"
+            } else if (role == "user" && valid.isNotEmpty() && expectedRole == "assistant") {
                 // Replace orphaned user message from an earlier failed send
-                valid[valid.lastIndex] = content(role = "user") { text(body) }
+                valid[valid.lastIndex] = "user" to body
             }
         }
-        if (valid.isNotEmpty() && expectedRole == "model") {
+        if (valid.isNotEmpty() && expectedRole == "assistant") {
             valid.removeAt(valid.lastIndex)
         }
-        return valid
+        return valid.takeLast(12)
     }
 
-    // 1. Multi-Turn Gemini Chatbot with System Instruction & Mode Selection
+    internal fun parseSseDelta(line: String): SseDeltaResult {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("data:")) return SseDeltaResult.Ignore
+        val payload = trimmed.removePrefix("data:").trim()
+        if (payload.isEmpty()) return SseDeltaResult.Ignore
+        if (payload == "[DONE]") return SseDeltaResult.Done
+
+        return try {
+            val obj = JSONObject(payload)
+            val choices = obj.optJSONArray("choices") ?: return SseDeltaResult.Ignore
+            if (choices.length() == 0) return SseDeltaResult.Ignore
+            val delta = choices.getJSONObject(0).optJSONObject("delta") ?: return SseDeltaResult.Ignore
+            val content = delta.optString("content", "")
+            if (content.isNotEmpty()) SseDeltaResult.Chunk(content) else SseDeltaResult.Ignore
+        } catch (e: Exception) {
+            Log.w(TAG, "Skipped unparseable SSE chunk: ${e.localizedMessage}")
+            SseDeltaResult.Ignore
+        }
+    }
+
+    private fun parseOpenAiErrorMessage(statusCode: Int, rawBody: String): String {
+        val parsed = try {
+            val err = JSONObject(rawBody).optJSONObject("error")
+            err?.optString("message", "")?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+        return parsed ?: rawBody.trim().take(240).ifBlank { "HTTP $statusCode" }
+    }
+
+    private fun encodeBitmapToDataUrl(bitmap: Bitmap): String {
+        val maxSide = max(bitmap.width, bitmap.height)
+        val scaled = if (maxSide > MAX_VISION_DIMENSION_PX && maxSide > 0) {
+            val ratio = MAX_VISION_DIMENSION_PX.toFloat() / maxSide.toFloat()
+            val targetW = (bitmap.width * ratio).roundToInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * ratio).roundToInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        } else {
+            bitmap
+        }
+
+        val out = ByteArrayOutputStream()
+        try {
+            scaled.compress(Bitmap.CompressFormat.JPEG, 82, out)
+            val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            return "data:image/jpeg;base64,$b64"
+        } finally {
+            if (scaled !== bitmap && !scaled.isRecycled) {
+                scaled.recycle()
+            }
+        }
+    }
+
+    private fun buildTextMessages(
+        systemPrompt: String?,
+        history: List<Pair<String, String>> = emptyList(),
+        userMessage: String
+    ): JSONArray {
+        val arr = JSONArray()
+        if (!systemPrompt.isNullOrBlank()) {
+            arr.put(
+                JSONObject()
+                    .put("role", "system")
+                    .put("content", systemPrompt)
+            )
+        }
+        history.forEach { (role, text) ->
+            arr.put(
+                JSONObject()
+                    .put("role", role)
+                    .put("content", text)
+            )
+        }
+        arr.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", userMessage)
+        )
+        return arr
+    }
+
+    private suspend fun executeStreamingRequest(
+        apiKey: String,
+        model: String,
+        messages: JSONArray,
+        maxTokens: Int?,
+        onCallCreated: (Call) -> Unit,
+        onChunk: suspend (String) -> Unit
+    ): Boolean {
+        val bodyJson = JSONObject()
+            .put("model", model)
+            .put("messages", messages)
+            .put("stream", true)
+            .put("temperature", 0.6)
+        if (maxTokens != null) {
+            bodyJson.put("max_tokens", maxTokens)
+        }
+
+        val request = Request.Builder()
+            .url("$BASE_URL/chat/completions")
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .post(bodyJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val call = httpClient.newCall(request)
+        onCallCreated(call)
+
+        var emittedAny = false
+        call.execute().use { response ->
+            if (!response.isSuccessful) {
+                val errBody = response.body?.string().orEmpty()
+                throw OpenAiApiException(
+                    statusCode = response.code,
+                    apiMessage = parseOpenAiErrorMessage(response.code, errBody)
+                )
+            }
+            val source = response.body?.source()
+                ?: throw IOException("Empty streaming body from OpenAI.")
+
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                when (val delta = parseSseDelta(line)) {
+                    is SseDeltaResult.Chunk -> {
+                        emittedAny = true
+                        onChunk(delta.text)
+                    }
+                    SseDeltaResult.Done -> break
+                    SseDeltaResult.Ignore -> Unit
+                }
+            }
+        }
+        return emittedAny
+    }
+
+    /**
+     * Streams live token deltas over Server-Sent Events (SSE) from OpenAI Chat Completions.
+     * If a heavier model (e.g. gpt-4o) fails transiently before emitting any tokens, automatically
+     * falls back to ultra-fast gpt-4o-mini so the student still gets a crisp answer.
+     */
+    private fun streamChatCompletions(
+        model: String,
+        messages: JSONArray,
+        maxTokens: Int? = null
+    ): Flow<String> = channelFlow {
+        val apiKey = requireApiKey()
+        var activeCall: Call? = null
+
+        val job = launch(Dispatchers.IO) {
+            withTimeout(AI_TIMEOUT_MS) {
+                var emittedAny = false
+                try {
+                    emittedAny = executeStreamingRequest(
+                        apiKey = apiKey,
+                        model = model,
+                        messages = messages,
+                        maxTokens = maxTokens,
+                        onCallCreated = { activeCall = it },
+                        onChunk = { chunk -> send(chunk) }
+                    )
+                    if (!emittedAny) {
+                        throw IllegalStateException("ChatGPT returned an empty response. Please try again.")
+                    }
+                } catch (ce: CancellationException) {
+                    activeCall?.cancel()
+                    throw ce
+                } catch (primaryErr: Exception) {
+                    val canFallback = !emittedAny &&
+                        model != DEFAULT_MODEL &&
+                        primaryErr !is MissingOpenAiApiKeyException &&
+                        (primaryErr !is OpenAiApiException || primaryErr.statusCode != 401)
+                    if (canFallback) {
+                        Log.w(TAG, "Model $model failed (${primaryErr.localizedMessage}); falling back to $DEFAULT_MODEL.")
+                        val fallbackEmitted = executeStreamingRequest(
+                            apiKey = apiKey,
+                            model = DEFAULT_MODEL,
+                            messages = messages,
+                            maxTokens = maxTokens,
+                            onCallCreated = { activeCall = it },
+                            onChunk = { chunk -> send(chunk) }
+                        )
+                        if (!fallbackEmitted) {
+                            throw primaryErr
+                        }
+                    } else {
+                        throw primaryErr
+                    }
+                }
+            }
+        }
+
+        job.invokeOnCompletion { err ->
+            if (err != null) {
+                activeCall?.cancel()
+                close(err)
+            } else {
+                close()
+            }
+        }
+
+        awaitClose {
+            activeCall?.cancel()
+            job.cancel()
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private suspend fun unaryChatCompletion(
+        model: String = DEFAULT_MODEL,
+        messages: JSONArray,
+        maxTokens: Int? = null,
+        jsonMode: Boolean = false
+    ): String = withContext(Dispatchers.IO) {
+        val apiKey = requireApiKey()
+        withTimeout(AI_TIMEOUT_MS) {
+            val bodyJson = JSONObject()
+                .put("model", model)
+                .put("messages", messages)
+                .put("temperature", if (jsonMode) 0.2 else 0.6)
+            if (maxTokens != null) {
+                bodyJson.put("max_tokens", maxTokens)
+            }
+            if (jsonMode) {
+                bodyJson.put("response_format", JSONObject().put("type", "json_object"))
+            }
+
+            val request = Request.Builder()
+                .url("$BASE_URL/chat/completions")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .post(bodyJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw OpenAiApiException(
+                        statusCode = response.code,
+                        apiMessage = parseOpenAiErrorMessage(response.code, rawBody)
+                    )
+                }
+                val json = JSONObject(rawBody)
+                val choices = json.optJSONArray("choices")
+                val content = choices?.optJSONObject(0)
+                    ?.optJSONObject("message")
+                    ?.optString("content", "")
+                    ?.trim()
+                    .orEmpty()
+                if (content.isEmpty()) {
+                    throw IllegalStateException("ChatGPT returned an empty response. Please try again.")
+                }
+                content
+            }
+        }
+    }
+
+    // 1. Multi-Turn ChatGPT Study Mentor with System Instruction & Mode Selection
     fun streamChatReply(
         profile: UserProfile,
         history: List<ChatMessageItem>,
@@ -304,33 +388,29 @@ class AiCoachService {
         """.trimIndent()
 
         val recentHistory = buildValidChatHistory(history)
+        val messages = buildTextMessages(
+            systemPrompt = sysPrompt,
+            history = recentHistory,
+            userMessage = userMessage
+        )
+        val targetModel = when (mode) {
+            AiChatMode.DEEP -> DEEP_MODEL
+            AiChatMode.FAST, AiChatMode.BALANCED -> DEFAULT_MODEL
+        }
+        val tokenLimit = when (mode) {
+            AiChatMode.FAST -> 550
+            AiChatMode.BALANCED -> 1100
+            AiChatMode.DEEP -> 1800
+        }
 
-        return streamWithFastFallback(
-            primaryStream = {
-                val chatModel = Firebase.ai.generativeModel(
-                    modelName = mode.modelName,
-                    systemInstruction = content { text(sysPrompt) }
-                )
-                chatModel.startChat(history = recentHistory).sendMessageStream(userMessage)
-            },
-            fallbackUnary = {
-                val liteModel = Firebase.ai.generativeModel(
-                    modelName = FAST_LITE_MODEL,
-                    systemInstruction = content { text(sysPrompt) }
-                )
-                try {
-                    liteModel.startChat(history = recentHistory).sendMessage(userMessage)
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (chatErr: Exception) {
-                    Log.w(TAG, "Lite chat with history failed (${chatErr.localizedMessage}); retrying single-turn.", chatErr)
-                    liteModel.generateContent(userMessage)
-                }
-            }
+        return streamChatCompletions(
+            model = targetModel,
+            messages = messages,
+            maxTokens = tokenLimit
         )
     }
 
-    // 1b. Multimodal Photo Doubt Solver (Image Bitmap + Prompt -> Step-by-step solution)
+    // 1b. Multimodal Photo Doubt Solver (Image Bitmap + Prompt -> Step-by-step ChatGPT Vision solution)
     fun streamPhotoDoubtReply(
         profile: UserProfile,
         bitmap: Bitmap,
@@ -349,63 +429,81 @@ class AiCoachService {
             Student target exam: ${profile.customDetails.ifBlank { "General studies" }}.
         """.trimIndent()
 
-        val multimodalContent = content {
-            image(bitmap)
-            text(cleanPrompt)
-        }
+        val dataUrl = encodeBitmapToDataUrl(bitmap)
+        val userContentParts = JSONArray()
+            .put(JSONObject().put("type", "text").put("text", cleanPrompt))
+            .put(
+                JSONObject()
+                    .put("type", "image_url")
+                    .put(
+                        "image_url",
+                        JSONObject()
+                            .put("url", dataUrl)
+                            .put("detail", "auto")
+                    )
+            )
 
-        return streamWithFastFallback(
-            primaryStream = {
-                val visionModel = Firebase.ai.generativeModel(
-                    modelName = DEFAULT_MODEL,
-                    systemInstruction = content { text(sysPrompt) }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", sysPrompt))
+            .put(JSONObject().put("role", "user").put("content", userContentParts))
+
+        return streamChatCompletions(
+            model = DEFAULT_MODEL,
+            messages = messages,
+            maxTokens = 1400
+        )
+    }
+
+    // 2. Audio Transcription (OpenAI Whisper API: audio bytes -> clean transcript)
+    suspend fun transcribeAudio(audioBytes: ByteArray, language: String): String = withContext(Dispatchers.IO) {
+        val apiKey = requireApiKey()
+        withTimeout(AI_TIMEOUT_MS) {
+            val multipart = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("model", WHISPER_MODEL)
+                .addFormDataPart("response_format", "json")
+                .addFormDataPart(
+                    "prompt",
+                    "Study notes and spoken questions in $language (Hindi, Hinglish, or English)."
                 )
-                visionModel.generateContentStream(multimodalContent)
-            },
-            fallbackUnary = {
-                val liteVisionModel = Firebase.ai.generativeModel(
-                    modelName = FAST_LITE_MODEL,
-                    systemInstruction = content { text(sysPrompt) }
+                .addFormDataPart(
+                    "file",
+                    "voice_note.m4a",
+                    audioBytes.toRequestBody(AUDIO_MEDIA_TYPE)
                 )
-                liteVisionModel.generateContent(multimodalContent)
+                .build()
+
+            val request = Request.Builder()
+                .url("$BASE_URL/audio/transcriptions")
+                .header("Authorization", "Bearer $apiKey")
+                .post(multipart)
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw OpenAiApiException(
+                        statusCode = response.code,
+                        apiMessage = parseOpenAiErrorMessage(response.code, rawBody)
+                    )
+                }
+                val transcript = JSONObject(rawBody).optString("text", "").trim()
+                if (transcript.isBlank()) {
+                    throw IllegalStateException("Could not detect clear speech in the recording. Try speaking closer to the mic.")
+                }
+                transcript
             }
-        )
-    }
-
-    // 2. Audio Transcription (Multimodal audio bytes -> Gemini transcript)
-    suspend fun transcribeAudio(audioBytes: ByteArray, language: String): String {
-        val prompt = """
-            Transcribe the spoken audio accurately and cleanly.
-            Preferred language context: $language (preserve Hindi/Hinglish/English words naturally as spoken).
-            Output ONLY the plain transcript text with proper punctuation, no timestamps or extra preamble.
-        """.trimIndent()
-
-        val reqContent = content {
-            inlineData(audioBytes, "audio/mp4")
-            text(prompt)
-        }
-
-        val response = unaryWithFastFallback(
-            primaryCall = { streamModel.generateContent(reqContent) },
-            fallbackCall = { fastLiteModel.generateContent(reqContent) }
-        )
-
-        return response.text?.trim().orEmpty().ifBlank {
-            throw IllegalStateException("Could not detect clear speech in the recording. Try speaking closer to the mic.")
         }
     }
 
-    // 3. Real-Time Voice Conversation Turn (Audio input -> Natural spoken reply)
+    // 3. Real-Time Voice Conversation Turn (Whisper transcription -> Fast ChatGPT spoken reply)
     fun streamVoiceConversationTurn(
         profile: UserProfile,
-        recentTurns: List<Pair<String, String>>, // role to text
+        recentTurns: List<Pair<String, String>>,
         audioBytes: ByteArray
-    ): Flow<String> {
-        val historyContext = if (recentTurns.isEmpty()) "" else {
-            "Recent conversation:\n" + recentTurns.takeLast(6).joinToString("\n") { (r, t) ->
-                "${if (r == "user") "Student" else "Coach"}: $t"
-            }
-        }
+    ): Flow<String> = channelFlow {
+        val spokenText = transcribeAudio(audioBytes, profile.aiLanguage)
+
         val sysPrompt = """
             You are a warm, real-time Voice Study Coach having a live spoken conversation with ${profile.name}.
             Reply in natural conversational ${profile.aiLanguage} meant to be read aloud via text-to-speech.
@@ -413,31 +511,23 @@ class AiCoachService {
             Student subjects: ${profile.subjects.joinToString(", ")}. Daily study goal: ${profile.dailyStudyGoalHours}h.
         """.trimIndent()
 
-        val reqContent = content {
-            if (historyContext.isNotBlank()) text(historyContext)
-            inlineData(audioBytes, "audio/mp4")
-            text("Listen to what the student just said in the audio and respond conversationally.")
+        val normalizedTurns = recentTurns.takeLast(6).map { (r, t) ->
+            (if (r == "user") "user" else "assistant") to t
         }
-
-        return streamWithFastFallback(
-            primaryStream = {
-                val voiceModel = Firebase.ai.generativeModel(
-                    modelName = DEFAULT_MODEL,
-                    generationConfig = generationConfig { maxOutputTokens = 450 },
-                    systemInstruction = content { text(sysPrompt) }
-                )
-                voiceModel.generateContentStream(reqContent)
-            },
-            fallbackUnary = {
-                val liteVoiceModel = Firebase.ai.generativeModel(
-                    modelName = FAST_LITE_MODEL,
-                    generationConfig = generationConfig { maxOutputTokens = 450 },
-                    systemInstruction = content { text(sysPrompt) }
-                )
-                liteVoiceModel.generateContent(reqContent)
-            }
+        val messages = buildTextMessages(
+            systemPrompt = sysPrompt,
+            history = normalizedTurns,
+            userMessage = spokenText
         )
-    }
+
+        streamChatCompletions(
+            model = DEFAULT_MODEL,
+            messages = messages,
+            maxTokens = 350
+        ).collect { chunk ->
+            send(chunk)
+        }
+    }.flowOn(Dispatchers.IO)
 
     // 4. Weekly Coach
     fun streamWeeklyCoach(profile: UserProfile, language: String): Flow<String> {
@@ -477,9 +567,10 @@ class AiCoachService {
             3. 3 concrete actions for tomorrow
         """.trimIndent()
 
-        return streamWithFastFallback(
-            primaryStream = { streamModel.generateContentStream(prompt) },
-            fallbackUnary = { fastLiteModel.generateContent(prompt) }
+        return streamChatCompletions(
+            model = DEFAULT_MODEL,
+            messages = buildTextMessages(systemPrompt = null, userMessage = prompt),
+            maxTokens = 900
         )
     }
 
@@ -505,9 +596,10 @@ class AiCoachService {
             Break into clear phases with daily hour splits and mock-test checkpoints. Keep formatting scannable.
         """.trimIndent()
 
-        return streamWithFastFallback(
-            primaryStream = { streamModel.generateContentStream(prompt) },
-            fallbackUnary = { fastLiteModel.generateContent(prompt) }
+        return streamChatCompletions(
+            model = DEFAULT_MODEL,
+            messages = buildTextMessages(systemPrompt = null, userMessage = prompt),
+            maxTokens = 1200
         )
     }
 
@@ -525,29 +617,36 @@ class AiCoachService {
             3. Common mistake to avoid + quick memory trick
         """.trimIndent()
 
-        return streamWithFastFallback(
-            primaryStream = { streamModel.generateContentStream(prompt) },
-            fallbackUnary = { fastLiteModel.generateContent(prompt) }
+        return streamChatCompletions(
+            model = DEFAULT_MODEL,
+            messages = buildTextMessages(systemPrompt = null, userMessage = prompt),
+            maxTokens = 1100
         )
     }
 
     // 7. Quick Add (Structured JSON)
     suspend fun parseQuickAddTask(input: String, availableSubjects: List<String>): RoutineTask {
+        val sysPrompt = """
+            Return ONLY valid JSON with exact keys:
+            {"title": string, "start": "HH:mm", "end": "HH:mm", "category": one of [${ALL_CATEGORIES.joinToString(", ")}], "subject": string}
+        """.trimIndent()
         val prompt = """
-            Parse this natural-language routine task request into structured fields:
+            Parse this natural-language routine task request into structured JSON:
             "$input"
 
             Available subjects: ${availableSubjects.joinToString(", ")}
             Available categories: ${ALL_CATEGORIES.joinToString(", ")}
             Convert 12-hour times like "7 to 8 pm" into 24-hour "19:00" and "20:00".
             If no time is given, pick "18:00" to "19:00".
+            Leave "subject" empty if category is not Study/Revision/Practice/Classes.
         """.trimIndent()
 
-        val response = unaryWithFastFallback(
-            primaryCall = { quickAddModel.generateContent(prompt) },
-            fallbackCall = { quickAddLiteModel.generateContent(prompt) }
+        val raw = unaryChatCompletion(
+            model = DEFAULT_MODEL,
+            messages = buildTextMessages(systemPrompt = sysPrompt, userMessage = prompt),
+            maxTokens = 300,
+            jsonMode = true
         )
-        val raw = response.text ?: throw IllegalStateException("Empty AI response for Quick Add.")
         val json = JSONObject(raw)
         val cat = json.optString("category", "Study").takeIf { it in ALL_CATEGORIES } ?: "Study"
         return RoutineTask(
@@ -565,21 +664,32 @@ class AiCoachService {
         userGoals: String,
         language: String
     ): Pair<String, List<RoutineTask>> {
+        val sysPrompt = """
+            Return ONLY valid JSON matching this schema:
+            {
+              "summary": "Brief 1-2 sentence explanation",
+              "tasks": [
+                {"start": "HH:mm", "end": "HH:mm", "title": "Task title", "category": "Study", "subject": "Subject or empty string"}
+              ]
+            }
+            Allowed categories: ${ALL_CATEGORIES.joinToString(", ")}.
+        """.trimIndent()
+
         val prompt = """
-            Build a realistic full-day routine (12 to 16 blocks from wake-up to sleep) for a student.
+            Build a realistic full-day routine (12 to 16 ordered blocks from wake-up to sleep) for a student.
             Write summary in $language; keep task titles crisp.
             Student: ${profile.name}
             Daily study target: ${profile.dailyStudyGoalHours} hours
             Subjects: ${profile.subjects.joinToString(", ")}
             Goals & constraints: $userGoals
-            Categories allowed: ${ALL_CATEGORIES.joinToString(", ")}
         """.trimIndent()
 
-        val response = unaryWithFastFallback(
-            primaryCall = { buildRoutineModel.generateContent(prompt) },
-            fallbackCall = { buildRoutineLiteModel.generateContent(prompt) }
+        val raw = unaryChatCompletion(
+            model = DEFAULT_MODEL,
+            messages = buildTextMessages(systemPrompt = sysPrompt, userMessage = prompt),
+            maxTokens = 1800,
+            jsonMode = true
         )
-        val raw = response.text ?: throw IllegalStateException("Empty AI response for routine builder.")
         val json = JSONObject(raw)
         val summary = json.optString("summary", "Custom routine generated for your goals.")
         val arr = json.getJSONArray("tasks")
@@ -613,16 +723,26 @@ class AiCoachService {
             Log.e(TAG, "AI request failed", e)
             val raw = e.localizedMessage?.takeIf { it.isNotBlank() }
             return when {
-                e is TimeoutCancellationException ->
-                    "Gemini timed out after 60 seconds. Check your internet connection or try Fast Lite mode and tap again."
+                e is MissingOpenAiApiKeyException ->
+                    e.message ?: "OpenAI API key is missing. Set OPENAI_API_KEY in AI Studio Secrets or GitHub Actions Secrets."
+                e is OpenAiApiException && e.statusCode == 401 ->
+                    "Invalid OpenAI API key (401). Check your OPENAI_API_KEY secret and rebuild the app."
+                e is OpenAiApiException && e.statusCode == 429 ->
+                    "OpenAI rate limit or billing quota reached (429). Check your OpenAI API usage/credits or try again shortly."
+                e is OpenAiApiException && e.statusCode in 500..599 ->
+                    "OpenAI servers are temporarily busy (${e.statusCode}). Please try again in a few seconds."
+                e is OpenAiApiException ->
+                    "ChatGPT error (${e.statusCode}): ${e.apiMessage}"
+                e is TimeoutCancellationException || e is SocketTimeoutException ->
+                    "ChatGPT timed out. Check your internet connection and tap Send again."
+                e is UnknownHostException ->
+                    "No internet connection. Please connect to Wi-Fi or mobile data and try again."
                 e is CancellationException ->
                     "Stopped."
-                raw != null && raw.contains("Default FirebaseApp is not initialized", ignoreCase = true) ->
-                    "Firebase is not configured in this APK build (app/google-services.json was missing when built). Add the GOOGLE_SERVICES_JSON GitHub secret and rebuild the APK."
                 raw != null ->
                     raw
                 else ->
-                    "Gemini couldn't complete this request right now (${e.javaClass.simpleName}). Please try again."
+                    "ChatGPT couldn't complete this request right now (${e.javaClass.simpleName}). Please try again."
             }
         }
     }

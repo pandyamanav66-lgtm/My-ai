@@ -1,4 +1,4 @@
-name: Build and Publish Debug APK
+name: Build and Publish Study Tracker APK
 
 on:
   push:
@@ -6,18 +6,39 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: "APK build variant (use 'debug' for fixed-key seamless updates, or 'release' if RELEASE_KEYSTORE_BASE64 secrets are set)"
+        required: false
+        default: "debug"
+        type: choice
+        options:
+          - debug
+          - release
 
 permissions:
   contents: write
 
 jobs:
-  build-debug-apk:
-    name: Build and Publish Debug APK
+  build-apk:
+    name: Build and Publish APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Determine build variant
+        id: variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [[ -z "${BUILD_TYPE}" ]]; then
+            BUILD_TYPE="debug"
+          fi
+          echo "build_type=${BUILD_TYPE}" >> "${GITHUB_OUTPUT}"
+          echo "Selected build variant: ${BUILD_TYPE}"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -66,205 +87,189 @@ jobs:
         with:
           gradle-version: 9.3.1
 
-      - name: Configure fixed debug keystore
+      - name: Configure consistent signing keystore (prevents 'App Not Installed')
+        id: signing
         shell: bash
+        env:
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
 
-          KEYSTORE_PATH="./debug.keystore"
-          KEYSTORE_B64_PATH="./debug.keystore.base64"
           KEYTOOL_BIN="${JAVA_HOME}/bin/keytool"
           if [[ ! -x "${KEYTOOL_BIN}" ]]; then
             echo "::error::keytool not found in configured Java 17 installation (${KEYTOOL_BIN})."
             exit 1
           fi
 
-          if [[ -f "${KEYSTORE_PATH}" && -s "${KEYSTORE_PATH}" ]]; then
-            echo "Fixed debug keystore already exists at ${KEYSTORE_PATH}."
-          elif [[ -f "${KEYSTORE_B64_PATH}" && -s "${KEYSTORE_B64_PATH}" ]]; then
-            echo "Restoring fixed project debug keystore from ${KEYSTORE_B64_PATH} for seamless in-place APK updates..."
-            tr -d '\r\n ' < "${KEYSTORE_B64_PATH}" | base64 --decode > "${KEYSTORE_PATH}"
-            "${KEYTOOL_BIN}" -list -keystore "${KEYSTORE_PATH}" -storepass android -alias androiddebugkey >/dev/null
-            echo "Verified fixed project debug keystore successfully."
-          else
-            echo "::warning::${KEYSTORE_B64_PATH} not found; generating a temporary debug keystore (future APKs may require uninstalling before update)."
-            "${KEYTOOL_BIN}" -genkeypair \
-              -keystore "${KEYSTORE_PATH}" \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              >/dev/null 2>&1 || {
-                echo "::error::Failed to generate temporary debug keystore."
-                exit 1
-              }
-          fi
+          # Always restore the fixed debug keystore so debug builds (and Gradle verification) never use a random key.
+          DEBUG_KEYSTORE_PATH="./debug.keystore"
+          DEBUG_KEYSTORE_B64_PATH="./debug.keystore.base64"
+          EXPECTED_FIXED_DEBUG_SHA1="5A:64:71:A3:07:F8:7C:A0:10:E5:3B:BB:32:24:B0:F3:14:F6:50:DD"
 
-          if [[ ! -f "${KEYSTORE_PATH}" || ! -s "${KEYSTORE_PATH}" ]]; then
-            echo "::error::Debug keystore is missing or empty after setup."
+          if [[ -n "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]]; then
+            echo "Restoring fixed debug keystore from ANDROID_DEBUG_KEYSTORE_BASE64 secret..."
+            printf '%s' "${ANDROID_DEBUG_KEYSTORE_BASE64}" | tr -d '\r\n ' | base64 --decode > "${DEBUG_KEYSTORE_PATH}"
+            DEBUG_SOURCE="ANDROID_DEBUG_KEYSTORE_BASE64 secret"
+          elif [[ -f "${DEBUG_KEYSTORE_B64_PATH}" && -s "${DEBUG_KEYSTORE_B64_PATH}" ]]; then
+            echo "Restoring fixed project debug keystore from committed ${DEBUG_KEYSTORE_B64_PATH}..."
+            tr -d '\r\n ' < "${DEBUG_KEYSTORE_B64_PATH}" | base64 --decode > "${DEBUG_KEYSTORE_PATH}"
+            DEBUG_SOURCE="committed debug.keystore.base64"
+          elif [[ -f "${DEBUG_KEYSTORE_PATH}" && -s "${DEBUG_KEYSTORE_PATH}" ]]; then
+            DEBUG_SOURCE="existing debug.keystore"
+          else
+            echo "::error::Fixed debug keystore is missing! Never generate a random temporary keystore because Android blocks in-place updates with 'App Not Installed'. Restore debug.keystore.base64 in the repository or set ANDROID_DEBUG_KEYSTORE_BASE64."
             exit 1
           fi
 
-          echo "Debug keystore is ready."
+          DEBUG_SHA1="$("${KEYTOOL_BIN}" -list -v -keystore "${DEBUG_KEYSTORE_PATH}" -storepass android -alias androiddebugkey | awk '/SHA1:/ {print $2; exit}')"
+          if [[ -z "${DEBUG_SHA1}" ]]; then
+            echo "::error::Failed to verify androiddebugkey inside ${DEBUG_KEYSTORE_PATH}."
+            exit 1
+          fi
+          echo "Verified debug keystore (${DEBUG_SOURCE}) SHA-1: ${DEBUG_SHA1}"
 
-      - name: Configure Firebase google-services.json
-        id: configure_firebase
+          if [[ "${DEBUG_SOURCE}" == "committed debug.keystore.base64" && "${DEBUG_SHA1}" != "${EXPECTED_FIXED_DEBUG_SHA1}" ]]; then
+            echo "::error::Debug keystore SHA-1 mismatch! Expected ${EXPECTED_FIXED_DEBUG_SHA1}, got ${DEBUG_SHA1}. Aborting to prevent breaking in-place updates."
+            exit 1
+          fi
+
+          if [[ "${BUILD_TYPE}" == "release" ]]; then
+            RELEASE_KEYSTORE_PATH="./my-upload-key.jks"
+            if [[ -z "${RELEASE_KEYSTORE_BASE64:-}" || -z "${STORE_PASSWORD:-}" || -z "${KEY_PASSWORD:-}" ]]; then
+              echo "::error::Release build requires repository secrets: RELEASE_KEYSTORE_BASE64, STORE_PASSWORD, and KEY_PASSWORD (keyAlias must be 'upload'). Add these secrets or run with build_type=debug."
+              exit 1
+            fi
+            printf '%s' "${RELEASE_KEYSTORE_BASE64}" | tr -d '\r\n ' | base64 --decode > "${RELEASE_KEYSTORE_PATH}"
+            RELEASE_SHA1="$("${KEYTOOL_BIN}" -list -v -keystore "${RELEASE_KEYSTORE_PATH}" -storepass "${STORE_PASSWORD}" -alias upload | awk '/SHA1:/ {print $2; exit}')"
+            if [[ -z "${RELEASE_SHA1}" ]]; then
+              echo "::error::Failed to verify alias 'upload' in RELEASE_KEYSTORE_BASE64 with STORE_PASSWORD."
+              exit 1
+            fi
+            echo "Verified release keystore (alias=upload) SHA-1: ${RELEASE_SHA1}"
+            echo "expected_sha1=${RELEASE_SHA1}" >> "${GITHUB_OUTPUT}"
+            echo "signing_source=Fixed Release Upload Keystore (RELEASE_KEYSTORE_BASE64)" >> "${GITHUB_OUTPUT}"
+          else
+            echo "expected_sha1=${DEBUG_SHA1}" >> "${GITHUB_OUTPUT}"
+            echo "signing_source=Fixed Project Debug Keystore (${DEBUG_SOURCE})" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Configure OpenAI ChatGPT API key (.env)
+        id: configure_openai
         shell: bash
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
 
-          SOURCE="none"
-          if [[ -n "${GOOGLE_SERVICES_JSON:-}" ]]; then
-            printf '%s' "${GOOGLE_SERVICES_JSON}" > app/google-services.json
-            SOURCE="GOOGLE_SERVICES_JSON secret"
-          elif [[ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
-            printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json
-            SOURCE="GOOGLE_SERVICES_JSON_BASE64 secret"
-          elif [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
-            SOURCE="repository app/google-services.json"
+          if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+            printf 'OPENAI_API_KEY=%s\n' "${OPENAI_API_KEY}" > .env
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+            echo "OpenAI API key loaded from GitHub Actions secret into .env (value hidden)."
           else
-            echo "::error::app/google-services.json is missing! Add Repository Secret 'GOOGLE_SERVICES_JSON' (Settings -> Secrets and variables -> Actions -> New repository secret) with the FULL contents of app/google-services.json (from { to }), then re-run."
-            exit 1
+            echo "::warning::OPENAI_API_KEY repository secret is not set. Add it in GitHub Repo Settings -> Secrets and variables -> Actions -> New repository secret so ChatGPT AI Coach works in the built APK."
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
           fi
 
-          echo "Loaded app/google-services.json from: ${SOURCE}"
-
-          python3 - <<'PY'
-          import json, sys
-
-          try:
-              with open("app/google-services.json", "r", encoding="utf-8") as f:
-                  data = json.load(f)
-          except Exception as e:
-              print(f"::error::app/google-services.json is NOT valid JSON ({e}). Make sure you copied the ENTIRE file from line 1 to the last line.")
-              sys.exit(1)
-
-          project_id = (data.get("project_info") or {}).get("project_id", "")
-          if not project_id or "remixed" in project_id.lower() or "placeholder" in project_id.lower():
-              print(f"::error::Invalid or placeholder project_id in app/google-services.json: '{project_id}'. Add the real app/google-services.json into the GOOGLE_SERVICES_JSON repository secret.")
-              sys.exit(1)
-
-          target_pkg = "com.aistudio.studytracker.qzmplk"
-          clients = data.get("client") or []
-          matched = None
-          for c in clients:
-              pkg = ((c.get("client_info") or {}).get("android_client_info") or {}).get("package_name")
-              if pkg == target_pkg:
-                  matched = c
-                  break
-
-          if not matched:
-              print(f"::error::app/google-services.json does not contain a client entry for package '{target_pkg}'. Copy the full app/google-services.json from AI Studio.")
-              sys.exit(1)
-
-          app_id = (matched.get("client_info") or {}).get("mobilesdk_app_id", "")
-          api_keys = matched.get("api_key") or []
-          api_key = (api_keys[0].get("current_key", "") if api_keys else "")
-          if not app_id or not api_key:
-              print("::error::app/google-services.json client entry is missing mobilesdk_app_id or api_key.")
-              sys.exit(1)
-
-          print(f"Validated Firebase config for package '{target_pkg}' (project_id='{project_id}').")
-          PY
-
-          echo "configured=true" >> "${GITHUB_OUTPUT}"
-
-      - name: Build debug APK
+      - name: Build APK
         shell: bash
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        env:
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "${BUILD_TYPE}" == "release" ]]; then
+            gradle :app:assembleRelease --stacktrace --no-daemon
+          else
+            gradle :app:assembleDebug --stacktrace --no-daemon
+          fi
 
-      - name: Verify debug APK
+      - name: Verify APK output and embedded signing certificate
+        id: verify_apk
         shell: bash
+        env:
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
+          EXPECTED_SHA1: ${{ steps.signing.outputs.expected_sha1 }}
         run: |
           set -euo pipefail
 
-          EXPECTED_APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [[ "${BUILD_TYPE}" == "release" ]]; then
+            EXPECTED_APK="app/build/outputs/apk/release/app-release.apk"
+          else
+            EXPECTED_APK="app/build/outputs/apk/debug/app-debug.apk"
+          fi
 
-          if [[ ! -e "${EXPECTED_APK}" ]]; then
-            echo "::error::Expected debug APK not found at ${EXPECTED_APK}."
+          if [[ ! -f "${EXPECTED_APK}" || ! -s "${EXPECTED_APK}" ]]; then
+            echo "::error::Expected APK not found or empty at ${EXPECTED_APK}."
             if [[ -d "app/build/outputs/apk" ]]; then
-              echo "APK files discovered inside app/build/outputs/apk:"
               find app/build/outputs/apk -type f -name "*.apk" -print || true
-            else
-              echo "Directory app/build/outputs/apk does not exist."
             fi
             exit 1
           fi
 
-          if [[ ! -f "${EXPECTED_APK}" ]]; then
-            echo "::error::${EXPECTED_APK} is not a regular file."
-            exit 1
-          fi
-
-          if [[ ! -s "${EXPECTED_APK}" ]]; then
-            echo "::error::${EXPECTED_APK} is empty."
-            exit 1
-          fi
-
-          if [[ "${EXPECTED_APK}" != *.apk ]]; then
-            echo "::error::${EXPECTED_APK} does not have the .apk extension."
-            exit 1
-          fi
-
           APK_SIZE="$(wc -c < "${EXPECTED_APK}" | tr -d ' ')"
-          echo "Verified debug APK: ${EXPECTED_APK} (${APK_SIZE} bytes)"
+          echo "Verified APK: ${EXPECTED_APK} (${APK_SIZE} bytes)"
 
-          python3 - <<'PY'
-          import sys, zipfile
-          with zipfile.ZipFile("app/build/outputs/apk/debug/app-debug.apk") as z:
-              data = z.read("resources.arsc")
-          missing = [k for k in ("google_app_id", "google_api_key", "recaptcha_site_key") if k.encode() not in data]
-          if missing:
-              print(f"::error::Built APK is missing required Firebase resources: {missing}. Firebase AI will fail at runtime.")
-              sys.exit(1)
-          print("Verified Firebase resources (google_app_id, google_api_key, recaptcha_site_key) are bundled inside the APK.")
-          PY
+          KEYTOOL_BIN="${JAVA_HOME}/bin/keytool"
+          APK_SHA1="$("${KEYTOOL_BIN}" -printcert -jarfile "${EXPECTED_APK}" | awk '/SHA1:/ {print $2; exit}')"
+          if [[ -z "${APK_SHA1}" ]]; then
+            echo "::error::Could not read signing certificate from ${EXPECTED_APK}. APK may be unsigned."
+            exit 1
+          fi
+          echo "Embedded APK Signing Certificate SHA-1: ${APK_SHA1}"
 
-      - name: Upload debug APK artifact
+          if [[ "${APK_SHA1}" != "${EXPECTED_SHA1}" ]]; then
+            echo "::error::APK signing certificate mismatch! Expected ${EXPECTED_SHA1}, found ${APK_SHA1}. Aborting to prevent 'App Not Installed' errors."
+            exit 1
+          fi
+
+          {
+            echo "apk_path=${EXPECTED_APK}"
+            echo "apk_sha1=${APK_SHA1}"
+            echo "apk_size=${APK_SIZE}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload APK artifact
         id: upload_apk
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: study-tracker-${{ steps.variant.outputs.build_type }}-apk
+          path: ${{ steps.verify_apk.outputs.apk_path }}
           if-no-files-found: error
 
       - name: Prepare APK release asset
         id: prepare_release_asset
         shell: bash
+        env:
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
+          SOURCE_APK: ${{ steps.verify_apk.outputs.apk_path }}
         run: |
           set -euo pipefail
 
-          SOURCE_APK="app/build/outputs/apk/debug/app-debug.apk"
           if [[ ! -f "${SOURCE_APK}" || ! -s "${SOURCE_APK}" || "${SOURCE_APK}" != *.apk ]]; then
-            echo "::error::Verified debug APK is missing or invalid: ${SOURCE_APK}"
+            echo "::error::Verified APK is missing or invalid: ${SOURCE_APK}"
             exit 1
           fi
 
           RAW_REPO_NAME="${GITHUB_REPOSITORY#*/}"
           SAFE_REPO_NAME="$(printf '%s' "${RAW_REPO_NAME}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/-+/-/g; s/^[.-]+//; s/[.-]+$//')"
           if [[ -z "${SAFE_REPO_NAME}" ]]; then
-            SAFE_REPO_NAME="android-app"
+            SAFE_REPO_NAME="study-tracker"
           fi
 
-          ASSET_FILENAME="${SAFE_REPO_NAME}-debug-build-${GITHUB_RUN_NUMBER}.apk"
+          ASSET_FILENAME="${SAFE_REPO_NAME}-${BUILD_TYPE}-build-${GITHUB_RUN_NUMBER}.apk"
           RELEASE_DIR="${RUNNER_TEMP}/apk-release-asset"
           mkdir -p "${RELEASE_DIR}"
 
           ASSET_PATH="${RELEASE_DIR}/${ASSET_FILENAME}"
           cp "${SOURCE_APK}" "${ASSET_PATH}"
 
-          if [[ ! -f "${ASSET_PATH}" || ! -s "${ASSET_PATH}" || "${ASSET_PATH}" != *.apk ]]; then
-            echo "::error::Failed to prepare APK release asset at ${ASSET_PATH}"
-            exit 1
-          fi
-
-          RELEASE_TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          RELEASE_TAG="${BUILD_TYPE}-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           RELEASE_TITLE="Study Tracker v1.0.${GITHUB_RUN_NUMBER}"
 
           {
@@ -282,10 +287,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
           ASSET_PATH: ${{ steps.prepare_release_asset.outputs.asset_path }}
           ASSET_NAME: ${{ steps.prepare_release_asset.outputs.asset_name }}
           RELEASE_TAG: ${{ steps.prepare_release_asset.outputs.release_tag }}
           RELEASE_TITLE: ${{ steps.prepare_release_asset.outputs.release_title }}
+          APK_SHA1: ${{ steps.verify_apk.outputs.apk_sha1 }}
+          SIGNING_SOURCE: ${{ steps.signing.outputs.signing_source }}
         run: |
           set -euo pipefail
 
@@ -293,24 +301,19 @@ jobs:
             echo "::warning::GitHub CLI (gh) is not available on this runner."
             exit 1
           fi
-          gh --version
-
-          if [[ -z "${ASSET_PATH}" || ! -f "${ASSET_PATH}" || ! -s "${ASSET_PATH}" || "${ASSET_PATH}" != *.apk ]]; then
-            echo "::warning::Prepared release APK asset is missing, empty, or not an .apk file."
-            exit 1
-          fi
 
           RELEASE_NOTES="$(cat <<EOF
-          Automatically built Study Tracker APK (version **1.0.${GITHUB_RUN_NUMBER}**, build **#${GITHUB_RUN_NUMBER}**).
+          Automatically built **Study Tracker** APK (version **1.0.${GITHUB_RUN_NUMBER}**, build **#${GITHUB_RUN_NUMBER}**, variant: **${BUILD_TYPE}**).
 
           - **Workflow Run Number:** ${GITHUB_RUN_NUMBER}
-          - **Workflow Run Attempt:** ${GITHUB_RUN_ATTEMPT}
           - **Source Commit SHA:** ${GITHUB_SHA}
           - **APK Asset:** \`${ASSET_NAME}\`
+          - **Signing Key:** ${SIGNING_SOURCE}
+          - **Verified Certificate SHA-1:** \`${APK_SHA1}\`
 
-          ### Update Notes
-          - Signed with the fixed project debug keystore so future builds update directly over the installed app without uninstalling or losing your study data.
-          - If upgrading from an older temporary-key APK, uninstall once and install this APK — all subsequent releases will update in-place.
+          ### Seamless In-Place Updates
+          - Every build is verified against the fixed signing certificate above so future updates install directly over the existing app without deleting data.
+          - **One-time migration:** If you previously installed an older APK signed with a different temporary key and see **"App not installed"**, save a JSON Backup inside **Profile -> Backup**, uninstall the old app once, install this APK, and restore your backup. Every future update after that installs in-place automatically.
           EOF
           )"
 
@@ -325,56 +328,50 @@ jobs:
               --latest
           fi
 
-      - name: Report APK download result
+      - name: Report APK build & signing summary
         if: ${{ always() && steps.upload_apk.outcome == 'success' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
           PUBLISH_OUTCOME: ${{ steps.publish_release.outcome }}
-          FIREBASE_CONFIGURED: ${{ steps.configure_firebase.outputs.configured }}
+          OPENAI_CONFIGURED: ${{ steps.configure_openai.outputs.configured }}
+          SIGNING_SOURCE: ${{ steps.signing.outputs.signing_source }}
+          APK_SHA1: ${{ steps.verify_apk.outputs.apk_sha1 }}
           RELEASE_TAG: ${{ steps.prepare_release_asset.outputs.release_tag }}
           RELEASE_TITLE: ${{ steps.prepare_release_asset.outputs.release_title }}
           ASSET_NAME: ${{ steps.prepare_release_asset.outputs.asset_name }}
         run: |
           set -euo pipefail
 
-          if [[ "${FIREBASE_CONFIGURED}" == "true" ]]; then
-            FIREBASE_STATUS="Included (\`app/google-services.json\` bundled — Gemini AI ready)"
+          if [[ "${OPENAI_CONFIGURED}" == "true" ]]; then
+            OPENAI_STATUS="Configured (\`OPENAI_API_KEY\` secret bundled — ChatGPT AI Coach ready)"
           else
-            FIREBASE_STATUS="Missing (\`GOOGLE_SERVICES_JSON\` secret not set — Gemini AI will show Firebase init error)"
+            OPENAI_STATUS="Missing (\`OPENAI_API_KEY\` secret not set — add it in Repo Secrets and rebuild)"
           fi
 
           if [[ "${PUBLISH_OUTCOME}" == "success" ]]; then
             RELEASE_URL="$(gh release view "${RELEASE_TAG}" --json url --jq '.url')"
-            echo "Release Tag: ${RELEASE_TAG}"
-            echo "Release Title: ${RELEASE_TITLE}"
-            echo "Release URL: ${RELEASE_URL}"
-            echo "APK Asset Filename: ${ASSET_NAME}"
-            echo "Firebase Config: ${FIREBASE_STATUS}"
-
             {
-              echo "## Debug APK Build & Release Summary"
+              echo "## Study Tracker APK Build & Release Summary"
               echo ""
-              echo "- **Status:** Build, Actions artifact upload, and GitHub Release publishing succeeded."
-              echo "- **Firebase AI Config:** ${FIREBASE_STATUS}"
+              echo "- **Status:** Build, signature verification, artifact upload, and GitHub Release publishing succeeded."
+              echo "- **Build Variant:** \`${BUILD_TYPE}\`"
+              echo "- **Signing Key:** ${SIGNING_SOURCE}"
+              echo "- **Verified APK SHA-1:** \`${APK_SHA1}\`"
+              echo "- **OpenAI ChatGPT API:** ${OPENAI_STATUS}"
               echo "- **Release Title:** ${RELEASE_TITLE}"
               echo "- **Release Tag:** \`${RELEASE_TAG}\`"
               echo "- **APK Asset Filename:** \`${ASSET_NAME}\`"
               echo "- **Direct Release Page:** ${RELEASE_URL}"
-              echo ""
-              echo "Download the APK directly from the **Assets** section on the GitHub Release page above."
-              echo "The normal GitHub Actions artifact (\`app-debug-apk\`) is also available on this workflow run as a backup."
             } >> "${GITHUB_STEP_SUMMARY}"
           else
-            echo "::warning::GitHub Release publishing did not succeed, but the debug APK build succeeded and the Actions artifact 'app-debug-apk' remains available."
-
             {
-              echo "## Debug APK Build Summary (Release Warning)"
+              echo "## Study Tracker APK Build Summary (Release Warning)"
               echo ""
-              echo "> **Warning:** GitHub Release publishing failed, so no GitHub Release link is available for this run."
-              echo ""
-              echo "- **APK Build:** Succeeded"
-              echo "- **Firebase AI Config:** ${FIREBASE_STATUS}"
-              echo "- **Actions Artifact Backup:** \`app-debug-apk\` was uploaded successfully and remains available for download from this workflow run's Artifacts section."
+              echo "- **APK Build:** Succeeded (\`${BUILD_TYPE}\`)"
+              echo "- **Verified APK SHA-1:** \`${APK_SHA1}\`"
+              echo "- **OpenAI ChatGPT API:** ${OPENAI_STATUS}"
+              echo "- **Actions Artifact Backup:** \`study-tracker-${BUILD_TYPE}-apk\` uploaded successfully."
             } >> "${GITHUB_STEP_SUMMARY}"
           fi

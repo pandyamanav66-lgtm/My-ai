@@ -43,8 +43,8 @@ import com.example.ui.theme.SpaceGroteskFontFamily
 import com.example.viewmodel.AiCoachUiState
 
 /**
- * Clean, minimal Liquid Glass Gemini AI Study Coach Chat.
- * Replaces the cluttered multi-section hub with a simple, direct chat + 1-tap smart starter prompts.
+ * Clean, minimal Liquid Glass OpenAI ChatGPT Study Coach Chat.
+ * Direct streaming chat + Photo Doubt Solver + 1-tap smart starter prompts.
  */
 @Composable
 fun AiCoachScreen(

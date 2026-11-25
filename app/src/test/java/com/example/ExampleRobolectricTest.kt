@@ -52,11 +52,11 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun appResources_matchStudyTrackerAndRecaptchaConfigured() {
+    fun appResources_matchStudyTracker() {
         assertEquals("Study Tracker", app.getString(R.string.app_name))
-        val recaptchaRes = app.resources.getIdentifier("recaptcha_site_key", "string", app.packageName)
-        assertTrue("recaptcha_site_key must be bundled in resources", recaptchaRes != 0)
-        assertTrue(app.getString(recaptchaRes).isNotBlank())
+        assertEquals("gpt-4o-mini", AiChatMode.BALANCED.modelName)
+        assertEquals("gpt-4o-mini", AiChatMode.FAST.modelName)
+        assertEquals("gpt-4o", AiChatMode.DEEP.modelName)
     }
 
     @Test
@@ -154,7 +154,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun aiCoachService_sanitizesHistoryAndFormatsErrorsCleanly() {
+    fun aiCoachService_sanitizesHistoryParsesSseAndFormatsErrorsCleanly() {
         val service = AiCoachService()
         val messyHistory = listOf(
             ChatMessageItem(role = "model", text = "Orphan model message should be skipped"),
@@ -165,14 +165,27 @@ class ExampleRobolectricTest {
         )
         val valid = service.buildValidChatHistory(messyHistory)
         assertEquals(2, valid.size)
-        assertEquals("user", valid[0].role)
-        assertEquals("model", valid[1].role)
+        assertEquals("user", valid[0].first)
+        assertEquals("Second question replaces orphaned first", valid[0].second)
+        assertEquals("assistant", valid[1].first)
+        assertEquals("Clean answer", valid[1].second)
+
+        // OpenAI SSE delta parsing
+        val chunkLine = """data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"Hello "}}]}"""
+        assertEquals(SseDeltaResult.Chunk("Hello "), service.parseSseDelta(chunkLine))
+        assertEquals(SseDeltaResult.Done, service.parseSseDelta("data: [DONE]"))
+        assertEquals(SseDeltaResult.Ignore, service.parseSseDelta(": keepalive"))
 
         assertEquals("07:05", service.normalizeHHmm("7:5"))
         assertEquals("23:59", service.normalizeHHmm("99:88"))
 
-        val initErr = AiCoachService.friendlyError(IllegalStateException("Default FirebaseApp is not initialized"))
-        assertTrue(initErr.contains("GOOGLE_SERVICES_JSON"))
+        // API key validation & friendly error formatting
+        val missingErr = AiCoachService.friendlyError(MissingOpenAiApiKeyException())
+        assertTrue(missingErr.contains("OPENAI_API_KEY"))
+        val authErr = AiCoachService.friendlyError(OpenAiApiException(401, "Incorrect API key"))
+        assertTrue(authErr.contains("401"))
+        val rateErr = AiCoachService.friendlyError(OpenAiApiException(429, "Rate limit exceeded"))
+        assertTrue(rateErr.contains("429"))
     }
 
     @Test

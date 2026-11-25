@@ -27,9 +27,9 @@ enum class DoubtFilter(val label: String) {
 }
 
 enum class AiChatMode(val label: String, val modelName: String, val description: String) {
-    BALANCED("Balanced", "gemini-3.8-flash", "Smart everyday study mentoring"),
-    FAST("Fast Lite", "gemini-3.5-flash-lite", "Ultra-fast quick answers"),
-    DEEP("Deep Study", "gemini-3.8-flash", "Step-by-step deep reasoning")
+    BALANCED("Balanced", "gpt-4o-mini", "Fast, smart everyday study mentoring"),
+    FAST("Fast", "gpt-4o-mini", "Ultra-fast concise answers"),
+    DEEP("Deep Study", "gpt-4o", "Step-by-step deep reasoning")
 }
 
 enum class FocusSoundMode(val label: String) {
@@ -129,7 +129,7 @@ data class ChatMessageItem(
     val id: String = UUID.randomUUID().toString().replace("-", "").take(12),
     val role: String, // "user" | "model"
     val text: String,
-    val modelUsed: String = "gemini-3.8-flash",
+    val modelUsed: String = "gpt-4o-mini",
     val timestamp: Long = System.currentTimeMillis()
 )
 

@@ -788,7 +788,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         checkAndUnlockBadges()
     }
 
-    // ---- Gemini AI Hub: Multi-turn Chat, Audio Transcribe, Real-Time Voice Live, Tools ----
+    // ---- OpenAI ChatGPT AI Hub: Multi-turn Chat, Photo Doubt, Audio Transcribe, Voice Live, Tools ----
 
     fun selectAiHubSection(section: AiHubSection) {
         if (audioRecorder.isRecording) {
@@ -982,7 +982,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update {
                     it.copy(ai = it.ai.copy(isTranscribing = false, transcriptText = transcript))
                 }
-                showToast("Audio transcribed with Gemini!")
+                showToast("Audio transcribed with Whisper AI!")
             } catch (t: TimeoutCancellationException) {
                 _uiState.update {
                     it.copy(

@@ -368,7 +368,7 @@ class DrstRepository(context: Context) {
                         id = co.optString("id", "c$i"),
                         role = co.optString("role", "user"),
                         text = co.optString("text", ""),
-                        modelUsed = co.optString("modelUsed", "gemini-3.8-flash"),
+                        modelUsed = co.optString("modelUsed", "gpt-4o-mini"),
                         timestamp = co.optLong("timestamp", System.currentTimeMillis())
                     )
                 )

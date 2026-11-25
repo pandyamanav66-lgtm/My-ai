@@ -66,10 +66,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // STEP 1: Configure Firebase App Check with launch intent BEFORE UI or ViewModels (for Firebase AI Logic)
-        configureAppCheck(this, intent)
-
-        // STEP 2: Unlock native high refresh rate (90Hz / 120Hz) on OEM Android displays
+        // STEP 1: Unlock native high refresh rate (90Hz / 120Hz) on OEM Android displays
         enableHighRefreshRate()
 
         // STEP 3: Ensure update notification channel exists & schedule background periodic checks
