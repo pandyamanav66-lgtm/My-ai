@@ -66,7 +66,7 @@ data class VoiceTurn(
 data class AiCoachUiState(
     val activeSection: AiHubSection = AiHubSection.CHAT,
     val selectedTool: AiTool = AiTool.WEEKLY_COACH,
-    val chatMode: AiChatMode = AiChatMode.BALANCED,
+    val chatMode: AiChatMode = AiChatMode.FAST,
     val chatMessages: List<ChatMessageItem> = emptyList(),
     val streamingChatReply: String = "",
     val isChatStreaming: Boolean = false,
@@ -788,7 +788,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
         checkAndUnlockBadges()
     }
 
-    // ---- OpenAI ChatGPT AI Hub: Multi-turn Chat, Photo Doubt, Audio Transcribe, Voice Live, Tools ----
+    // ---- Gemini AI Hub: Flash & Deep Multi-turn Chat, Photo Doubt, Audio Transcribe, Voice Live, Tools ----
 
     fun selectAiHubSection(section: AiHubSection) {
         if (audioRecorder.isRecording) {
@@ -859,7 +859,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                     aiService.streamPhotoDoubtReply(
                         profile = profile,
                         bitmap = attachedPhoto,
-                        userPrompt = clean
+                        userPrompt = clean,
+                        mode = mode
                     )
                 } else {
                     aiService.streamChatReply(
@@ -982,7 +983,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update {
                     it.copy(ai = it.ai.copy(isTranscribing = false, transcriptText = transcript))
                 }
-                showToast("Audio transcribed with Whisper AI!")
+                showToast("Audio transcribed with Gemini AI!")
             } catch (t: TimeoutCancellationException) {
                 _uiState.update {
                     it.copy(

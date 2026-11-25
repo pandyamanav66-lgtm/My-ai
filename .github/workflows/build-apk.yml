@@ -105,7 +105,6 @@ jobs:
             exit 1
           fi
 
-          # Always restore the fixed debug keystore so debug builds (and Gradle verification) never use a random key.
           DEBUG_KEYSTORE_PATH="./debug.keystore"
           DEBUG_KEYSTORE_B64_PATH="./debug.keystore.base64"
           EXPECTED_FIXED_DEBUG_SHA1="5A:64:71:A3:07:F8:7C:A0:10:E5:3B:BB:32:24:B0:F3:14:F6:50:DD"
@@ -157,22 +156,56 @@ jobs:
             echo "signing_source=Fixed Project Debug Keystore (${DEBUG_SOURCE})" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Configure OpenAI ChatGPT API key (.env)
-        id: configure_openai
+      - name: Configure Firebase google-services.json (Gemini AI Logic)
+        id: configure_firebase
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: |
           set -euo pipefail
 
-          if [[ -n "${OPENAI_API_KEY:-}" ]]; then
-            printf 'OPENAI_API_KEY=%s\n' "${OPENAI_API_KEY}" > .env
-            echo "configured=true" >> "${GITHUB_OUTPUT}"
-            echo "OpenAI API key loaded from GitHub Actions secret into .env (value hidden)."
+          SOURCE="none"
+          if [[ -n "${GOOGLE_SERVICES_JSON:-}" ]]; then
+            printf '%s' "${GOOGLE_SERVICES_JSON}" > app/google-services.json
+            SOURCE="GOOGLE_SERVICES_JSON secret"
+          elif [[ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
+            printf '%s' "${GOOGLE_SERVICES_JSON_BASE64}" | base64 --decode > app/google-services.json
+            SOURCE="GOOGLE_SERVICES_JSON_BASE64 secret"
+          elif [[ -f "app/google-services.json" && -s "app/google-services.json" ]]; then
+            SOURCE="repository app/google-services.json"
           else
-            echo "::warning::OPENAI_API_KEY repository secret is not set. Add it in GitHub Repo Settings -> Secrets and variables -> Actions -> New repository secret so ChatGPT AI Coach works in the built APK."
-            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            echo "::error::app/google-services.json is missing! Commit app/google-services.json or add Repository Secret 'GOOGLE_SERVICES_JSON'."
+            exit 1
           fi
+
+          echo "Loaded app/google-services.json from: ${SOURCE}"
+
+          python3 - <<'PY'
+          import json, sys
+
+          with open("app/google-services.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          project_id = (data.get("project_info") or {}).get("project_id", "")
+          if not project_id or "remixed" in project_id.lower() or "placeholder" in project_id.lower():
+              print(f"::error::Invalid or placeholder project_id in app/google-services.json: '{project_id}'.")
+              sys.exit(1)
+
+          target_pkg = "com.aistudio.studytracker.qzmplk"
+          clients = data.get("client") or []
+          matched = next(
+              (c for c in clients if ((c.get("client_info") or {}).get("android_client_info") or {}).get("package_name") == target_pkg),
+              None
+          )
+          if not matched:
+              print(f"::error::app/google-services.json is missing client entry for package '{target_pkg}'.")
+              sys.exit(1)
+
+          print(f"Validated Firebase AI Logic config for package '{target_pkg}' (project_id='{project_id}').")
+          PY
+
+          echo "configured=true" >> "${GITHUB_OUTPUT}"
 
       - name: Build APK
         shell: bash
@@ -189,7 +222,7 @@ jobs:
             gradle :app:assembleDebug --stacktrace --no-daemon
           fi
 
-      - name: Verify APK output and embedded signing certificate
+      - name: Verify APK output, Firebase resources, and signing certificate
         id: verify_apk
         shell: bash
         env:
@@ -227,6 +260,18 @@ jobs:
             echo "::error::APK signing certificate mismatch! Expected ${EXPECTED_SHA1}, found ${APK_SHA1}. Aborting to prevent 'App Not Installed' errors."
             exit 1
           fi
+
+          python3 - "${EXPECTED_APK}" <<'PY'
+          import sys, zipfile
+          apk_path = sys.argv[1]
+          with zipfile.ZipFile(apk_path) as z:
+              data = z.read("resources.arsc")
+          missing = [k for k in ("google_app_id", "google_api_key", "recaptcha_site_key") if k.encode() not in data]
+          if missing:
+              print(f"::error::Built APK is missing required Firebase resources: {missing}.")
+              sys.exit(1)
+          print("Verified Firebase AI & App Check resources (google_app_id, google_api_key, recaptcha_site_key) are bundled.")
+          PY
 
           {
             echo "apk_path=${EXPECTED_APK}"
@@ -305,15 +350,14 @@ jobs:
           RELEASE_NOTES="$(cat <<EOF
           Automatically built **Study Tracker** APK (version **1.0.${GITHUB_RUN_NUMBER}**, build **#${GITHUB_RUN_NUMBER}**, variant: **${BUILD_TYPE}**).
 
-          - **Workflow Run Number:** ${GITHUB_RUN_NUMBER}
-          - **Source Commit SHA:** ${GITHUB_SHA}
-          - **APK Asset:** \`${ASSET_NAME}\`
+          - **AI Coach:** Firebase AI Logic (Gemini Flash ⚡ + Gemini Deep 🧠) with zero client API keys
           - **Signing Key:** ${SIGNING_SOURCE}
           - **Verified Certificate SHA-1:** \`${APK_SHA1}\`
+          - **APK Asset:** \`${ASSET_NAME}\`
 
           ### Seamless In-Place Updates
           - Every build is verified against the fixed signing certificate above so future updates install directly over the existing app without deleting data.
-          - **One-time migration:** If you previously installed an older APK signed with a different temporary key and see **"App not installed"**, save a JSON Backup inside **Profile -> Backup**, uninstall the old app once, install this APK, and restore your backup. Every future update after that installs in-place automatically.
+          - **One-time migration:** If upgrading from an older temporary-key APK and Android shows **"App not installed"**, save a JSON Backup in **Profile -> Backup**, uninstall once, install this APK, and restore your backup.
           EOF
           )"
 
@@ -335,7 +379,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUILD_TYPE: ${{ steps.variant.outputs.build_type }}
           PUBLISH_OUTCOME: ${{ steps.publish_release.outcome }}
-          OPENAI_CONFIGURED: ${{ steps.configure_openai.outputs.configured }}
+          FIREBASE_CONFIGURED: ${{ steps.configure_firebase.outputs.configured }}
           SIGNING_SOURCE: ${{ steps.signing.outputs.signing_source }}
           APK_SHA1: ${{ steps.verify_apk.outputs.apk_sha1 }}
           RELEASE_TAG: ${{ steps.prepare_release_asset.outputs.release_tag }}
@@ -343,12 +387,6 @@ jobs:
           ASSET_NAME: ${{ steps.prepare_release_asset.outputs.asset_name }}
         run: |
           set -euo pipefail
-
-          if [[ "${OPENAI_CONFIGURED}" == "true" ]]; then
-            OPENAI_STATUS="Configured (\`OPENAI_API_KEY\` secret bundled — ChatGPT AI Coach ready)"
-          else
-            OPENAI_STATUS="Missing (\`OPENAI_API_KEY\` secret not set — add it in Repo Secrets and rebuild)"
-          fi
 
           if [[ "${PUBLISH_OUTCOME}" == "success" ]]; then
             RELEASE_URL="$(gh release view "${RELEASE_TAG}" --json url --jq '.url')"
@@ -359,7 +397,7 @@ jobs:
               echo "- **Build Variant:** \`${BUILD_TYPE}\`"
               echo "- **Signing Key:** ${SIGNING_SOURCE}"
               echo "- **Verified APK SHA-1:** \`${APK_SHA1}\`"
-              echo "- **OpenAI ChatGPT API:** ${OPENAI_STATUS}"
+              echo "- **Firebase Gemini AI Logic:** Configured (${FIREBASE_CONFIGURED})"
               echo "- **Release Title:** ${RELEASE_TITLE}"
               echo "- **Release Tag:** \`${RELEASE_TAG}\`"
               echo "- **APK Asset Filename:** \`${ASSET_NAME}\`"
@@ -371,7 +409,7 @@ jobs:
               echo ""
               echo "- **APK Build:** Succeeded (\`${BUILD_TYPE}\`)"
               echo "- **Verified APK SHA-1:** \`${APK_SHA1}\`"
-              echo "- **OpenAI ChatGPT API:** ${OPENAI_STATUS}"
+              echo "- **Firebase Gemini AI Logic:** Configured (${FIREBASE_CONFIGURED})"
               echo "- **Actions Artifact Backup:** \`study-tracker-${BUILD_TYPE}-apk\` uploaded successfully."
             } >> "${GITHUB_STEP_SUMMARY}"
           fi

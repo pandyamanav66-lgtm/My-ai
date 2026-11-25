@@ -43,8 +43,8 @@ import com.example.ui.theme.SpaceGroteskFontFamily
 import com.example.viewmodel.AiCoachUiState
 
 /**
- * Clean, minimal Liquid Glass OpenAI ChatGPT Study Coach Chat.
- * Direct streaming chat + Photo Doubt Solver + 1-tap smart starter prompts.
+ * Clean, minimal Liquid Glass Gemini AI Study Coach Chat.
+ * Supports 1-tap switching between Gemini Flash (ultra-fast) & Gemini Deep (detailed) + Photo Doubt Solver.
  */
 @Composable
 fun AiCoachScreen(
@@ -54,6 +54,7 @@ fun AiCoachScreen(
     onClearChatHistory: () -> Unit,
     onSetLanguage: (String) -> Unit,
     onStopAi: () -> Unit,
+    onSelectChatMode: (AiChatMode) -> Unit = {},
     onDismissError: () -> Unit = {},
     onCopyOutput: (String) -> Unit = {},
     onPickPhoto: () -> Unit = {},
@@ -91,85 +92,155 @@ fun AiCoachScreen(
             .padding(top = 8.dp, bottom = if (isImeVisible) 10.dp else 98.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Compact Liquid Glass AI Coach Header
+        // Compact Liquid Glass AI Coach Header + Gemini Flash / Deep Model Switcher
         DrstCard {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.28f), c.prismViolet.copy(alpha = 0.32f))))
-                        .border(1.dp, c.prismCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.AutoAwesome,
-                        contentDescription = null,
-                        tint = if (c.isDark) c.prismCyan else c.band,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "AI Study Coach",
-                        style = TextStyle(
-                            fontFamily = SpaceGroteskFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = c.ink
-                        )
-                    )
-                    Text(
-                        text = "Ask doubts, snap a photo, or get study plans",
-                        style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
-                    )
-                }
-
-                // Simple Hinglish / English toggle
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(c.surface2)
-                        .border(1.dp, c.line, RoundedCornerShape(99.dp))
-                        .padding(2.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    listOf("Hinglish", "English").forEach { lang ->
-                        val active = profile.aiLanguage.equals(lang, ignoreCase = true)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(99.dp))
-                                .background(if (active) c.band else Color.Transparent)
-                                .clickable { onSetLanguage(lang) }
-                                .padding(horizontal = 9.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = lang,
-                                style = TextStyle(
-                                    fontFamily = InterFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    color = if (active) c.onBand else c.muted
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Brush.linearGradient(listOf(c.prismCyan.copy(alpha = 0.28f), c.prismViolet.copy(alpha = 0.32f))))
+                            .border(1.dp, c.prismCyan.copy(alpha = 0.55f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (c.isDark) c.prismCyan else c.band,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Gemini Study Coach",
+                            style = TextStyle(
+                                fontFamily = SpaceGroteskFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = c.ink
+                            )
+                        )
+                        Text(
+                            text = aiState.chatMode.description,
+                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted),
+                            maxLines = 1
+                        )
+                    }
+
+                    // Simple Hinglish / English toggle
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(c.surface2)
+                            .border(1.dp, c.line, RoundedCornerShape(99.dp))
+                            .padding(2.dp)
+                    ) {
+                        listOf("Hinglish", "English").forEach { lang ->
+                            val active = profile.aiLanguage.equals(lang, ignoreCase = true)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(99.dp))
+                                    .background(if (active) c.band else Color.Transparent)
+                                    .clickable { onSetLanguage(lang) }
+                                    .padding(horizontal = 9.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = lang,
+                                    style = TextStyle(
+                                        fontFamily = InterFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        color = if (active) c.onBand else c.muted
+                                    )
                                 )
+                            }
+                        }
+                    }
+
+                    if (aiState.chatMessages.isNotEmpty()) {
+                        IconButton(
+                            onClick = onClearChatHistory,
+                            modifier = Modifier.size(34.dp).testTag("ai_clear_chat_button")
+                        ) {
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = "Clear chat",
+                                tint = c.muted,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
 
-                if (aiState.chatMessages.isNotEmpty()) {
-                    IconButton(
-                        onClick = onClearChatHistory,
-                        modifier = Modifier.size(34.dp).testTag("ai_clear_chat_button")
-                    ) {
-                        Icon(
-                            Icons.Rounded.DeleteOutline,
-                            contentDescription = "Clear chat",
-                            tint = c.muted,
-                            modifier = Modifier.size(18.dp)
-                        )
+                // 1-Tap Gemini Model Selector: Flash (Ultra-Fast) vs Deep (Detailed)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(c.surface2)
+                        .border(1.dp, c.line, RoundedCornerShape(14.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    AiChatMode.entries.forEach { mode ->
+                        val selected = aiState.chatMode == mode
+                        val isFast = mode == AiChatMode.FAST
+                        val activeBrush = if (isFast) {
+                            Brush.horizontalGradient(listOf(c.prismCyan, c.ok))
+                        } else {
+                            Brush.horizontalGradient(listOf(c.prismViolet, c.band))
+                        }
+                        val activeContentColor = if (isFast) Color(0xFF061322) else Color.White
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 36.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .then(
+                                    if (selected) Modifier.background(activeBrush)
+                                    else Modifier.background(Color.Transparent)
+                                )
+                                .clickable { onSelectChatMode(mode) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("ai_mode_${mode.name.lowercase()}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isFast) Icons.Rounded.Bolt else Icons.Rounded.Psychology,
+                                contentDescription = null,
+                                tint = if (selected) activeContentColor else c.muted,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = if (isFast) "Gemini Flash" else "Gemini Deep",
+                                style = TextStyle(
+                                    fontFamily = SpaceGroteskFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (selected) activeContentColor else c.muted
+                                )
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = if (isFast) "Fast" else "Detailed",
+                                style = TextStyle(
+                                    fontFamily = InterFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 10.sp,
+                                    color = if (selected) activeContentColor.copy(alpha = 0.85f) else c.muted.copy(alpha = 0.7f)
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -248,9 +319,13 @@ fun AiCoachScreen(
             }
 
             items(aiState.chatMessages, key = { it.id }) { msg ->
+                val badgeLabel = if (msg.role != "user") {
+                    if (msg.modelUsed.contains("lite", ignoreCase = true)) "Gemini Flash" else "Gemini Deep"
+                } else null
                 ChatMessageBubble(
                     isUser = msg.role == "user",
                     text = msg.text,
+                    modelBadge = badgeLabel,
                     onCopy = if (msg.role != "user") ({ onCopyOutput(msg.text) }) else null
                 )
             }
@@ -259,7 +334,10 @@ fun AiCoachScreen(
                 item(key = "streaming_bubble") {
                     ChatMessageBubble(
                         isUser = false,
-                        text = aiState.streamingChatReply.ifBlank { "Thinking..." },
+                        text = aiState.streamingChatReply.ifBlank {
+                            if (aiState.chatMode == AiChatMode.FAST) "Flash answering..." else "Thinking deeply..."
+                        },
+                        modelBadge = aiState.chatMode.label,
                         isStreaming = true,
                         onStop = onStopAi
                     )
@@ -459,6 +537,7 @@ fun AiCoachScreen(
 private fun ChatMessageBubble(
     isUser: Boolean,
     text: String,
+    modelBadge: String? = null,
     isStreaming: Boolean = false,
     onStop: (() -> Unit)? = null,
     onCopy: (() -> Unit)? = null
@@ -511,13 +590,29 @@ private fun ChatMessageBubble(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = c.prismCyan)
-                    Text("Generating...", fontSize = 11.sp, color = c.muted)
+                    Text(
+                        text = if (modelBadge != null) "$modelBadge generating..." else "Generating...",
+                        fontSize = 11.sp,
+                        color = c.muted
+                    )
                 }
             } else if (onCopy != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    if (!modelBadge.isNullOrBlank()) {
+                        val isFlash = modelBadge.contains("Flash", ignoreCase = true)
+                        Text(
+                            text = modelBadge,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isFlash) c.prismCyan else c.prismViolet
+                        )
+                    } else {
+                        Spacer(Modifier.width(1.dp))
+                    }
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(99.dp))
