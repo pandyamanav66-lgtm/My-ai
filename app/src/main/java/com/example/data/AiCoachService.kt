@@ -593,7 +593,7 @@ class AiCoachService {
                 raw != null && raw.contains("Default FirebaseApp is not initialized", ignoreCase = true) ->
                     "Firebase is not configured in this APK build (app/google-services.json was missing when built). Add GOOGLE_SERVICES_JSON or commit app/google-services.json and rebuild."
                 raw != null && raw.contains("App Check", ignoreCase = true) ->
-                    "Firebase App Check verification failed ($raw). Ensure Play Services & internet are active and retry."
+                    "Firebase App Check failed [${AppCheckRuntimeInfo.activeProvider}]: $raw. Ensure Google Play Services & internet are active, or reinstall the latest build cleanly."
                 raw != null ->
                     raw
                 else ->

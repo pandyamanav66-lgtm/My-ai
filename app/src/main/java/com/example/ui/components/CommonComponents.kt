@@ -39,10 +39,12 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -76,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.ApkDownloadState
 import com.example.data.AppTab
 import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LocalDrstColors
@@ -772,7 +775,8 @@ fun ToastBanner(
 }
 
 /**
- * Sleek in-app Liquid Glass banner that appears automatically whenever a new GitHub Release is detected.
+ * Sleek in-app Liquid Glass banner that downloads and installs updates directly inside the app
+ * with live progress bar — no external browser or website links.
  */
 @Composable
 fun UpdateAvailableBanner(
@@ -781,11 +785,16 @@ fun UpdateAvailableBanner(
     sizeLabel: String,
     onDownloadClick: () -> Unit,
     onDismiss: () -> Unit,
+    downloadState: ApkDownloadState = ApkDownloadState.Idle,
+    onCancelDownload: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val c = LocalDrstColors.current
     val shape = RoundedCornerShape(22.dp)
-    Row(
+    val isDownloading = downloadState is ApkDownloadState.Downloading
+    val isReady = downloadState is ApkDownloadState.ReadyToInstall
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -803,82 +812,129 @@ fun UpdateAvailableBanner(
             )
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("in_app_update_banner"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(c.prismCyan.copy(alpha = 0.22f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SystemUpdate,
-                contentDescription = "New update available",
-                tint = if (c.isDark) c.prismCyan else c.band,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "New Update: $versionName",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    fontFamily = SpaceGroteskFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = c.ink
-                )
-            )
-            val meta = if (sizeLabel.isNotBlank()) "Build #$buildCode • $sizeLabel • Keeps data" else "Build #$buildCode • Keeps your data"
-            Text(
-                text = meta,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    fontFamily = InterFontFamily,
-                    fontSize = 11.sp,
-                    color = c.muted
-                )
-            )
-        }
         Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(99.dp))
-                .background(Brush.horizontalGradient(listOf(c.prismCyan, c.ok)))
-                .clickable(onClick = onDownloadClick)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .testTag("banner_download_update_button"),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Download,
-                contentDescription = null,
-                tint = Color(0xFF061322),
-                modifier = Modifier.size(15.dp)
-            )
-            Text(
-                text = "Update",
-                style = TextStyle(
-                    fontFamily = SpaceGroteskFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = Color(0xFF061322)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(c.prismCyan.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isReady) Icons.Rounded.InstallMobile else Icons.Rounded.SystemUpdate,
+                    contentDescription = "New update available",
+                    tint = if (c.isDark) c.prismCyan else c.band,
+                    modifier = Modifier.size(20.dp)
                 )
-            )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when (downloadState) {
+                        is ApkDownloadState.Downloading -> "Downloading $versionName (${downloadState.progressPercent}%)"
+                        is ApkDownloadState.ReadyToInstall -> "Ready to Install: $versionName"
+                        else -> "New Update: $versionName"
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = SpaceGroteskFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = c.ink
+                    )
+                )
+                val meta = when (downloadState) {
+                    is ApkDownloadState.Downloading -> {
+                        val sizePart = listOf(downloadState.downloadedLabel, downloadState.totalLabel)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" / ")
+                        if (sizePart.isNotBlank()) "$sizePart • Installing in-app" else "Downloading update directly in app..."
+                    }
+                    is ApkDownloadState.ReadyToInstall -> "Tap Install Now to update directly"
+                    is ApkDownloadState.Error -> downloadState.message
+                    ApkDownloadState.Idle -> if (sizeLabel.isNotBlank()) "Build #$buildCode • $sizeLabel • In-app install" else "Build #$buildCode • Direct in-app install"
+                }
+                Text(
+                    text = meta,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        color = if (downloadState is ApkDownloadState.Error) c.badInk else c.muted
+                    )
+                )
+            }
+
+            if (isDownloading) {
+                IconButton(
+                    onClick = onCancelDownload,
+                    modifier = Modifier.size(34.dp).testTag("banner_cancel_download_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Cancel update download",
+                        tint = c.badInk,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(Brush.horizontalGradient(listOf(c.prismCyan, c.ok)))
+                        .clickable(onClick = onDownloadClick)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .testTag("banner_download_update_button"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isReady) Icons.Rounded.InstallMobile else Icons.Rounded.Download,
+                        contentDescription = null,
+                        tint = Color(0xFF061322),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = if (isReady) "Install" else "Update",
+                        style = TextStyle(
+                            fontFamily = SpaceGroteskFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color(0xFF061322)
+                        )
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(30.dp).testTag("banner_dismiss_update_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Dismiss update banner",
+                        tint = c.muted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.size(30.dp).testTag("banner_dismiss_update_button")
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Close,
-                contentDescription = "Dismiss update banner",
-                tint = c.muted,
-                modifier = Modifier.size(16.dp)
+
+        if (downloadState is ApkDownloadState.Downloading) {
+            LinearProgressIndicator(
+                progress = { (downloadState.progressPercent.coerceIn(0, 100)) / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .testTag("banner_download_progress"),
+                color = c.prismCyan,
+                trackColor = c.track
             )
         }
     }

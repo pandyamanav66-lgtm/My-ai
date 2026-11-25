@@ -112,6 +112,7 @@ data class TrackerUiState(
     val timer: FocusTimerState = FocusTimerState(),
     val ai: AiCoachUiState = AiCoachUiState(),
     val updateState: UpdateCheckState = UpdateCheckState.Idle,
+    val apkDownloadState: ApkDownloadState = ApkDownloadState.Idle,
     val updateBannerDismissed: Boolean = false,
     val hasSavedGitHubToken: Boolean = false,
     val savedRepoSlug: String = "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}",
@@ -127,6 +128,7 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
     private val focusSoundEngine = FocusSoundEngine()
 
     private var updateCheckJob: Job? = null
+    private var apkDownloadJob: Job? = null
     private var lastAutoUpdateCheckMs: Long = 0L
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -1550,6 +1552,76 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissUpdateBanner() {
         _uiState.update { it.copy(updateBannerDismissed = true) }
+    }
+
+    fun startInAppUpdateDownload() {
+        val available = _uiState.value.updateState as? UpdateCheckState.UpdateAvailable ?: return
+        if (_uiState.value.apkDownloadState is ApkDownloadState.Downloading) return
+
+        apkDownloadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                apkDownloadState = ApkDownloadState.Downloading(
+                    progressPercent = 0,
+                    downloadedLabel = "0.0 MB",
+                    totalLabel = available.apkSizeLabel
+                )
+            )
+        }
+
+        apkDownloadJob = viewModelScope.launch {
+            try {
+                val token = UpdateNotificationHelper.getSavedGitHubToken(getApplication())
+                val file = InAppApkInstaller.downloadApk(
+                    context = getApplication(),
+                    downloadUrl = available.apkDownloadUrl,
+                    buildCode = available.latestBuildCode,
+                    authToken = token
+                ) { pct, downloaded, total ->
+                    val safePct = if (pct < 0) 0 else pct
+                    val totalLbl = InAppApkInstaller.formatMb(total).ifBlank { available.apkSizeLabel }
+                    _uiState.update {
+                        it.copy(
+                            apkDownloadState = ApkDownloadState.Downloading(
+                                progressPercent = safePct,
+                                downloadedLabel = InAppApkInstaller.formatMb(downloaded).ifBlank { "0.0 MB" },
+                                totalLabel = totalLbl
+                            )
+                        )
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        apkDownloadState = ApkDownloadState.ReadyToInstall(
+                            apkFilePath = file.absolutePath,
+                            buildCode = available.latestBuildCode
+                        )
+                    )
+                }
+            } catch (ce: CancellationException) {
+                _uiState.update { it.copy(apkDownloadState = ApkDownloadState.Idle) }
+                throw ce
+            } catch (e: Exception) {
+                Log.e(TAG, "In-app APK download failed", e)
+                val msg = e.localizedMessage?.takeIf { it.isNotBlank() }
+                    ?: "Download failed. Check internet connection and try again."
+                _uiState.update { it.copy(apkDownloadState = ApkDownloadState.Error(msg)) }
+                showToast("Update download failed")
+            }
+        }
+    }
+
+    fun cancelInAppUpdateDownload() {
+        apkDownloadJob?.cancel()
+        apkDownloadJob = null
+        _uiState.update { it.copy(apkDownloadState = ApkDownloadState.Idle) }
+        showToast("Update download cancelled")
+    }
+
+    fun clearApkDownloadError() {
+        if (_uiState.value.apkDownloadState is ApkDownloadState.Error) {
+            _uiState.update { it.copy(apkDownloadState = ApkDownloadState.Idle) }
+        }
     }
 
     fun saveGitHubUpdateToken(token: String) {

@@ -17,12 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
+import com.example.data.ApkDownloadState
 import com.example.data.AppUpdateService
 import com.example.data.UpdateCheckState
 import com.example.data.UserProfile
@@ -38,10 +40,13 @@ fun ProfileSheet(
     profile: UserProfile,
     themeMode: String,
     updateState: UpdateCheckState = UpdateCheckState.Idle,
+    apkDownloadState: ApkDownloadState = ApkDownloadState.Idle,
     hasSavedGitHubToken: Boolean = false,
     savedRepoSlug: String = "${AppUpdateService.DEFAULT_REPO_OWNER}/${AppUpdateService.DEFAULT_REPO_NAME}",
     notificationsEnabled: Boolean = true,
     onCheckForUpdates: () -> Unit = {},
+    onStartInAppUpdate: () -> Unit = {},
+    onCancelUpdateDownload: () -> Unit = {},
     onOpenUpdateUrl: (String) -> Unit = {},
     onSaveGitHubToken: (String) -> Unit = {},
     onSaveRepoSlug: (String) -> Unit = {},
@@ -345,15 +350,99 @@ fun ProfileSheet(
                                                 )
                                             }
                                         }
-                                        Button(
-                                            onClick = { onOpenUpdateUrl(st.apkDownloadUrl) },
-                                            modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_update_apk_button"),
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band)
-                                        ) {
-                                            Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("Download Update APK", fontWeight = FontWeight.Bold)
+                                        when (apkDownloadState) {
+                                            is ApkDownloadState.Downloading -> {
+                                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = "Downloading ${apkDownloadState.progressPercent}%",
+                                                            style = TextStyle(fontFamily = SpaceGroteskFontFamily, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = c.ink)
+                                                        )
+                                                        val bytesMeta = listOf(apkDownloadState.downloadedLabel, apkDownloadState.totalLabel)
+                                                            .filter { it.isNotBlank() }
+                                                            .joinToString(" / ")
+                                                        Text(
+                                                            text = bytesMeta,
+                                                            style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
+                                                        )
+                                                    }
+                                                    LinearProgressIndicator(
+                                                        progress = { apkDownloadState.progressPercent.coerceIn(0, 100) / 100f },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(7.dp)
+                                                            .clip(RoundedCornerShape(99.dp))
+                                                            .testTag("profile_update_progress"),
+                                                        color = c.prismCyan,
+                                                        trackColor = c.track
+                                                    )
+                                                    OutlinedButton(
+                                                        onClick = onCancelUpdateDownload,
+                                                        modifier = Modifier.fillMaxWidth().height(40.dp).testTag("cancel_update_download_button"),
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        border = BorderStroke(1.dp, c.badInk.copy(alpha = 0.55f))
+                                                    ) {
+                                                        Icon(Icons.Rounded.Close, contentDescription = null, tint = c.badInk, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text("Cancel Download", color = c.badInk, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+
+                                            is ApkDownloadState.ReadyToInstall -> {
+                                                Button(
+                                                    onClick = onStartInAppUpdate,
+                                                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_update_apk_button"),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = c.ok, contentColor = Color(0xFF061322))
+                                                ) {
+                                                    Icon(Icons.Rounded.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text("Install Update Now", fontWeight = FontWeight.Bold)
+                                                }
+                                                Text(
+                                                    text = "Downloaded inside app! Tap Install Update Now to update directly without any browser.",
+                                                    style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
+                                                )
+                                            }
+
+                                            is ApkDownloadState.Error -> {
+                                                Text(
+                                                    text = apkDownloadState.message,
+                                                    style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.badInk)
+                                                )
+                                                Button(
+                                                    onClick = onStartInAppUpdate,
+                                                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_update_apk_button"),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band)
+                                                ) {
+                                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text("Retry Download & Install", fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+
+                                            ApkDownloadState.Idle -> {
+                                                Button(
+                                                    onClick = onStartInAppUpdate,
+                                                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_update_apk_button"),
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = c.gold, contentColor = c.band)
+                                                ) {
+                                                    Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text("Download & Install Update", fontWeight = FontWeight.Bold)
+                                                }
+                                                Text(
+                                                    text = "Downloads & installs directly inside the app (no website opens).",
+                                                    style = TextStyle(fontFamily = InterFontFamily, fontSize = 11.sp, color = c.muted)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -376,43 +465,20 @@ fun ProfileSheet(
                                 }
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Button(
+                                onClick = onCheckForUpdates,
+                                enabled = updateState !is UpdateCheckState.Checking && apkDownloadState !is ApkDownloadState.Downloading,
+                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("check_updates_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
                             ) {
-                                Button(
-                                    onClick = onCheckForUpdates,
-                                    enabled = updateState !is UpdateCheckState.Checking,
-                                    modifier = Modifier.weight(1f).height(46.dp).testTag("check_updates_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.band, contentColor = c.onBand)
-                                ) {
-                                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = if (updateState is UpdateCheckState.Checking) "Checking..." else "Check Updates",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                val releasesUrl = when (val st = updateState) {
-                                    is UpdateCheckState.UpdateAvailable -> st.releasePageUrl
-                                    is UpdateCheckState.UpToDate -> st.releasePageUrl
-                                    is UpdateCheckState.Error -> st.fallbackReleasesUrl
-                                    else -> "https://github.com/$savedRepoSlug/releases"
-                                }
-                                OutlinedButton(
-                                    onClick = { onOpenUpdateUrl(releasesUrl) },
-                                    modifier = Modifier.height(46.dp).testTag("open_releases_button"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, c.line),
-                                    contentPadding = PaddingValues(horizontal = 14.dp)
-                                ) {
-                                    Icon(Icons.Rounded.OpenInNew, contentDescription = "Open GitHub Releases", tint = c.ink, modifier = Modifier.size(17.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Releases", fontSize = 12.sp, color = c.ink, fontWeight = FontWeight.SemiBold)
-                                }
+                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (updateState is UpdateCheckState.Checking) "Checking..." else "Check Updates",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
 
                             if (!notificationsEnabled) {

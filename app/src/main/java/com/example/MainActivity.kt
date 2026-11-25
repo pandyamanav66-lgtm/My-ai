@@ -59,6 +59,7 @@ import com.example.viewmodel.TrackerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val openUpdateTrigger = mutableIntStateOf(0)
@@ -228,10 +229,61 @@ private fun StudyTrackerRoot(
             .onFailure { context.startActivity(fallback) }
     }
 
+    var pendingInstallApkPath by remember { mutableStateOf<String?>(null) }
+
+    fun launchDownloadedApkInstall(apkPath: String) {
+        val file = File(apkPath)
+        InAppApkInstaller.launchSystemInstaller(context, file)
+            .onFailure { err ->
+                vm.showToast(err.localizedMessage ?: "Could not open installer")
+            }
+    }
+
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val path = pendingInstallApkPath
+        if (path != null && InAppApkInstaller.canInstallPackages(context)) {
+            pendingInstallApkPath = null
+            launchDownloadedApkInstall(path)
+        } else if (path != null) {
+            vm.showToast("Enable 'Allow from this source' to install updates directly")
+        }
+    }
+
+    fun triggerApkInstallOrPermission(apkPath: String) {
+        if (InAppApkInstaller.canInstallPackages(context)) {
+            launchDownloadedApkInstall(apkPath)
+        } else {
+            pendingInstallApkPath = apkPath
+            vm.showToast("Allow 'Install unknown apps' once — then update installs automatically")
+            runCatching {
+                unknownSourcesLauncher.launch(InAppApkInstaller.createUnknownSourcesSettingsIntent(context))
+            }.onFailure {
+                vm.showToast("Open Android Settings > Install unknown apps for Study Tracker")
+            }
+        }
+    }
+
+    fun handleInAppUpdateAction() {
+        val dl = state.apkDownloadState
+        if (dl is ApkDownloadState.ReadyToInstall) {
+            triggerApkInstallOrPermission(dl.apkFilePath)
+        } else {
+            vm.startInAppUpdateDownload()
+        }
+    }
+
+    // Auto-launch Android's native Package Installer popup the instant in-app download completes
+    LaunchedEffect(state.apkDownloadState) {
+        val ready = state.apkDownloadState as? ApkDownloadState.ReadyToInstall ?: return@LaunchedEffect
+        triggerApkInstallOrPermission(ready.apkFilePath)
+    }
+
     fun openExternalUrl(url: String) {
         val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         runCatching { context.startActivity(viewIntent) }
-            .onFailure { vm.showToast("Could not open browser for update link") }
+            .onFailure { vm.showToast("Could not open link") }
     }
 
     val activeProfile = state.store.activeProfile
@@ -368,7 +420,9 @@ private fun StudyTrackerRoot(
                                     versionName = availableUpdate.latestVersionName,
                                     buildCode = availableUpdate.latestBuildCode,
                                     sizeLabel = availableUpdate.apkSizeLabel,
-                                    onDownloadClick = { openExternalUrl(availableUpdate.apkDownloadUrl) },
+                                    downloadState = state.apkDownloadState,
+                                    onDownloadClick = ::handleInAppUpdateAction,
+                                    onCancelDownload = vm::cancelInAppUpdateDownload,
                                     onDismiss = vm::dismissUpdateBanner
                                 )
                             }
@@ -476,10 +530,13 @@ private fun StudyTrackerRoot(
                             profile = activeProfile,
                             themeMode = state.store.theme,
                             updateState = state.updateState,
+                            apkDownloadState = state.apkDownloadState,
                             hasSavedGitHubToken = state.hasSavedGitHubToken,
                             savedRepoSlug = state.savedRepoSlug,
                             notificationsEnabled = UpdateNotificationHelper.areNotificationsAllowed(context),
                             onCheckForUpdates = { vm.checkForAppUpdate(silent = false) },
+                            onStartInAppUpdate = ::handleInAppUpdateAction,
+                            onCancelUpdateDownload = vm::cancelInAppUpdateDownload,
                             onOpenUpdateUrl = ::openExternalUrl,
                             onSaveGitHubToken = vm::saveGitHubUpdateToken,
                             onSaveRepoSlug = vm::saveGitHubRepoSlug,

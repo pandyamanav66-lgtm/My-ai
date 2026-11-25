@@ -386,7 +386,7 @@ class ExampleRobolectricTest {
     fun ui_profileSheetDisplaysUpdateCardAndDownloadAction() {
         val sampleProfile = UserProfile(name = "Manav Pandya")
         var checked = false
-        var openedUrl: String? = null
+        var startedInAppDownload = false
         val availableState = UpdateCheckState.UpdateAvailable(
             currentVersionName = "1.0.10",
             currentVersionCode = 10,
@@ -405,7 +405,7 @@ class ExampleRobolectricTest {
                     themeMode = "dark",
                     updateState = availableState,
                     onCheckForUpdates = { checked = true },
-                    onOpenUpdateUrl = { openedUrl = it },
+                    onStartInAppUpdate = { startedInAppDownload = true },
                     onSaveDetails = { _, _, _, _ -> },
                     onSetThemeMode = {},
                     onSaveBackupFile = {},
@@ -420,7 +420,7 @@ class ExampleRobolectricTest {
         composeRule.onNodeWithTag("profile_sheet_list").performScrollToKey("app_updates")
         composeRule.onNodeWithTag("update_status_available").assertIsDisplayed()
         composeRule.onNodeWithTag("download_update_apk_button").assertIsDisplayed().performClick()
-        assertEquals(availableState.apkDownloadUrl, openedUrl)
+        assertTrue(startedInAppDownload)
 
         composeRule.onNodeWithTag("check_updates_button").assertIsDisplayed().performClick()
         assertTrue(checked)
@@ -477,6 +477,35 @@ class ExampleRobolectricTest {
         assertTrue(downloaded)
         composeRule.onNodeWithTag("banner_dismiss_update_button").performClick()
         assertTrue(dismissed)
+
+        assertTrue(InAppApkInstaller.isValidZipMagic(byteArrayOf(0x50, 0x4B, 0x03, 0x04)))
+        assertFalse(InAppApkInstaller.isValidZipMagic("<html>error</html>".toByteArray()))
+    }
+
+    @Test
+    fun ui_updateBannerShowsLiveInAppDownloadProgressAndCancel() {
+        var cancelled = false
+        composeRule.setContent {
+            StudyTrackerTheme(themeMode = "dark") {
+                UpdateAvailableBanner(
+                    versionName = "Study Tracker v1.0.17",
+                    buildCode = 17,
+                    sizeLabel = "25.0 MB",
+                    downloadState = ApkDownloadState.Downloading(
+                        progressPercent = 48,
+                        downloadedLabel = "12.0 MB",
+                        totalLabel = "25.0 MB"
+                    ),
+                    onDownloadClick = {},
+                    onCancelDownload = { cancelled = true },
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("banner_download_progress").assertIsDisplayed()
+        composeRule.onNodeWithTag("banner_cancel_download_button").assertIsDisplayed().performClick()
+        assertTrue(cancelled)
     }
 
     @Test
